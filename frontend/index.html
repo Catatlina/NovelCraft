@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="星禾写作助手 — AI 驱动的智能写作平台，助力故事构思、大纲规划、质量检测与爆款分析" />
+    <meta name="theme-color" content="#FF6B35" />
+    <title>星禾写作助手</title>
+    <script>
+      // 系统暗色模式偏好检测：初始化 dark class
+      (function () {
+        const saved = localStorage.getItem('novelcraft-theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (saved === 'dark' || (!saved && prefersDark)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

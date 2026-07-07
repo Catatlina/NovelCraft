@@ -1,0 +1,65 @@
+
+services:
+  api:
+    build: ./backend
+    container_name: novelcraft-api
+    ports:
+      - "8100:8100"
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://novelcraft:novelcraft123@db:5432/novelcraft
+      - REDIS_URL=redis://redis:6379/0
+      - TZ=Asia/Shanghai
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    volumes:
+      - ./backend/app:/app/app  # hot reload in dev
+
+  worker:
+    build: ./backend
+    container_name: novelcraft-worker
+    command: celery -A app.tasks.celery_app worker --loglevel=info -c 2
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://novelcraft:novelcraft123@db:5432/novelcraft
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    volumes:
+      - ./backend/app:/app/app
+
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: novelcraft-db
+    ports:
+      - "15433:5432"
+    environment:
+      POSTGRES_USER: novelcraft
+      POSTGRES_PASSWORD: novelcraft123
+      POSTGRES_DB: novelcraft
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 自动执行建表脚本（pgvector 扩展已内置在 pgvector 镜像中）
+      - ./backend/schema_v8.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novelcraft"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: novelcraft-redis
+    ports:
+      - "16379:6379"
+
+volumes:
+  pgdata:

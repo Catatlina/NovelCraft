@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment
+.env
+backend/.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.tar.gz
+
+# Frontend
+node_modules/
+frontend/android/
+frontend/mobile/
+frontend/www/
+frontend/js/
+frontend/css/
+frontend/package*.json
+frontend/capacitor.config.json
+
+# Backup
+backend_v31_backup/
