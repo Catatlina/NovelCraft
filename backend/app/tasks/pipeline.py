@@ -1,4 +1,6 @@
 """Celery 调度流水线 — Phase 4 五级任务队列"""
+import asyncio
+import concurrent.futures
 import uuid as _uuid
 from datetime import datetime, timezone
 
@@ -7,6 +9,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+
+
+def _run_async(coro):
+    """安全运行 async 协程，兼容 Celery 已运行 event loop 的场景。
+    
+    Celery worker 可能已在 event loop 中运行，此时 asyncio.run() 会抛 RuntimeError。
+    此函数检测当前 loop 状态：无 loop 时直接 asyncio.run()，有 loop 时在新线程中运行。
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    # 已有 running loop，在新线程中执行
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 celery_app = Celery(
     "novelcraft",
@@ -208,7 +225,7 @@ def idea_pipeline_task(
                 await db.commit()
                 raise
 
-    return asyncio.run(_run())
+    return _run_async(_run())
 
 
 # ============================================================
@@ -365,7 +382,7 @@ def outline_pipeline_task(
                 await db.commit()
                 raise
 
-    return asyncio.run(_run())
+    return _run_async(_run())
 
 
 async def _check_outline_consistency(
@@ -583,7 +600,7 @@ def publish_pipeline_task(
                 await db.commit()
                 raise
 
-    return asyncio.run(_run())
+    return _run_async(_run())
 
 
 # ============================================================
@@ -658,7 +675,7 @@ def chapter_queue(self, project_id: str, chapter_num: int, batch_id: str):
 
             return {"chapter_num": chapter_num, "title": ch.title, "words": ch.word_count}
 
-    return asyncio.run(_run())
+    return _run_async(_run())
 
 
 @celery_app.task(name="review_queue", bind=True, max_retries=1, default_retry_delay=120)
@@ -687,7 +704,7 @@ def review_queue(self, chapter_id: str):
             )
             return {"overall_score": result.get("overall_score"), "chapter_id": chapter_id}
 
-    return asyncio.run(_run())
+    return _run_async(_run())
 
 
 celery_app.conf.task_routes = {

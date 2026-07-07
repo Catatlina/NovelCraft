@@ -8,6 +8,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_user_project
+from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import KnowledgeEmbedding, NovelProject, User, WorldSettingEmbedding
 from app.services.deepseek_client import DeepSeekError, chat_completion
@@ -47,29 +48,25 @@ class InheritRequest(BaseModel):
 # -----------------------------------------------------------
 
 
-async def _get_embedding(text: str) -> list[float]:
-    """调用 DeepSeek 生成文本嵌入向量"""
-    prompt = f"请将以下内容转换为语义向量表示，用于知识检索。只输出数字向量。\n{text[:1000]}"
+async def _get_embedding(text: str) -> list[float] | None:
+    """调用 DeepSeek Embeddings API 生成文本嵌入向量"""
+    import httpx
+    from app.services.deepseek_client import _request_api_key
+    key = _request_api_key.get() or settings.deepseek_api_key
+    if not key:
+        return None
     try:
-        r = await chat_completion(
-            [{"role": "user", "content": prompt}],
-            max_tokens=200,
-            temperature=0,
-        )
-        return _keyword_vector(text)
-    except DeepSeekError:
-        return _keyword_vector(text)
-
-
-def _keyword_vector(text: str, dims: int = 1536) -> list[float]:
-    """关键词特征向量（DeepSeek embeddings 不可用时的降级方案）"""
-    import hashlib
-    h = hashlib.sha256(text.encode()).digest()
-    vec = []
-    for i in range(min(dims, len(h) * 4)):
-        b = h[i % len(h)]
-        vec.append((b / 255.0) * 2 - 1)
-    return vec + [0.0] * (dims - len(vec)) if dims > len(vec) else vec[:dims]
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{settings.deepseek_base_url}/embeddings",
+                json={"model": "deepseek-chat", "input": text[:1000]},
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["data"][0]["embedding"]
+    except Exception:
+        return None
 
 
 def _compute_text_hash(text: str) -> str:
@@ -324,7 +321,7 @@ async def inherit_knowledge(
                 char_name = char_data.get("name", "") if isinstance(char_data, dict) else ""
                 if char_name:
                     char_chunk = f"角色：{char_name}。" + char_text[:500]
-                    char_embedding = _keyword_vector(char_chunk)
+                    char_embedding = await _get_embedding(char_chunk)
                     wse = WorldSettingEmbedding(
                         project_id=target_id,
                         chunk_text=char_chunk,
@@ -353,7 +350,7 @@ async def inherit_knowledge(
                 stats["glossary"] += 1
 
                 # 术语也写入 world_setting_embeddings
-                term_embedding = _keyword_vector(term_content)
+                term_embedding = await _get_embedding(term_content)
                 wse = WorldSettingEmbedding(
                     project_id=target_id,
                     chunk_text=term_content,

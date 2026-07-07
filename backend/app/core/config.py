@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = ""
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if not self.secret_key:
+            raise ValueError(
+                "SECRET_KEY 未设置，请在 .env 中配置。"
+                "生成方法: python3 -c \"import secrets; print(secrets.token_urlsafe(32))\""
+            )
+        if not self.admin_password:
+            raise ValueError("ADMIN_PASSWORD 未设置，请在 .env 中配置")
+
     # 加密
     account_encryption_key: str = ""
 

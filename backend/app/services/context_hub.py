@@ -30,6 +30,30 @@ from app.core.config import settings
 from app.db.models import ForeshadowPool, NovelChapter, NovelProject, WorldSettingEmbedding
 
 
+async def _get_embedding(text: str) -> list[float] | None:
+    """调用 DeepSeek Embeddings API 生成语义向量。
+    
+    失败时返回 None，调用方应降级到关键词检索。
+    """
+    import httpx
+    from app.services.deepseek_client import _request_api_key
+    key = _request_api_key.get() or settings.deepseek_api_key
+    if not key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{settings.deepseek_base_url}/embeddings",
+                json={"model": "deepseek-chat", "input": text},
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["data"][0]["embedding"]
+    except Exception:
+        return None
+
+
 async def assemble_context(
     db: AsyncSession, project_id: uuid.UUID, target_chapter_num: int
 ) -> dict:
@@ -112,14 +136,14 @@ async def _retrieve_relevant_world_setting(
     recent_summaries: list[dict],
     db: AsyncSession,
 ) -> str:
-    """pgvector 语义向量检索版本：对 world_setting_embeddings 表做 cosine similarity 检索。
+    """pgvector 语义向量检索：对 world_setting_embeddings 表做 cosine similarity 检索。
 
     流程：
         1. 从 recent_summaries 提取最近3章的关键词/主题作为 query
-        2. 生成 query embedding（用 _keyword_vector 作为降级方案）
+        2. 调用 DeepSeek Embeddings API 生成 query embedding
         3. 查询 world_setting_embeddings 表做 cosine similarity
         4. 取 top-5，拼接返回
-        5. pgvector 不可用时降级为关键词检索
+        5. Embeddings API 不可用时降级为关键词检索
 
     Args:
         project: 当前项目
@@ -137,17 +161,19 @@ async def _retrieve_relevant_world_setting(
         if title:
             query_parts.append(title)
         if summary:
-            # 取摘要前100字作为检索关键词来源
             query_parts.append(summary[:100])
 
     query_text = " ".join(query_parts).strip()
 
     if not query_text:
-        # 没有最近章节上下文，返回项目级世界设定摘要
         return _fallback_world_setting(project)
 
-    # 2. 生成 query embedding
-    query_embedding = _keyword_vector(query_text)
+    # 2. 调用 DeepSeek Embeddings API 生成真实语义向量
+    query_embedding = await _get_embedding(query_text)
+
+    if query_embedding is None:
+        # Embeddings API 不可用，降级为关键词检索
+        return await _keyword_fallback_retrieval(project, query_text, db)
 
     # 3. pgvector cosine similarity 检索
     try:
@@ -182,11 +208,10 @@ async def _retrieve_relevant_world_setting(
                 else _fallback_world_setting(project)
             )
     except Exception:
-        # 5. pgvector 不可用时降级为关键词检索
         pass
 
     # 降级：关键词模糊匹配
-    return _keyword_fallback_retrieval(project, query_text, db)
+    return await _keyword_fallback_retrieval(project, query_text, db)
 
 
 async def _keyword_fallback_retrieval(
@@ -296,7 +321,7 @@ async def index_world_setting(
 
     count = 0
     for i, chunk in enumerate(chunks):
-        embedding = _keyword_vector(chunk)
+        embedding = await _get_embedding(chunk)
         wse = WorldSettingEmbedding(
             project_id=project_id,
             chunk_text=chunk,

@@ -60,9 +60,9 @@ async def _do_7d_review(
 ) -> dict:
     """执行7维审查，可选历史对比。"""
     messages = build_novel_review_messages(
-        chapter=content,
-        outline=outline,
-        context=ctx,
+        chapter_content=content,
+        chapter_outline=outline,
+        context_summary=ctx,
         previous_review=previous_review,
     )
     try:

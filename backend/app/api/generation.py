@@ -106,9 +106,33 @@ async def _generate_single_chapter(db: AsyncSession, project: NovelProject, mode
                 fs_row.status = "paid_off"
                 fs_row.payoff_chapter = target_chapter_num
 
+    # 自动标记超期伏笔（需求 3.1：伏笔状态包括超期未回收）
+    await _auto_mark_overdue_foreshadows(db, project.id, target_chapter_num)
+
     # 更新项目统计
     project.total_chapters = target_chapter_num
     project.total_words = (project.total_words or 0) + chapter.word_count
     project.token_used = (project.token_used or 0) + result.get("usage", {}).get("total_tokens", 0)
 
     return chapter
+
+
+async def _auto_mark_overdue_foreshadows(db: AsyncSession, project_id: uuid.UUID, current_chapter_num: int) -> None:
+    """自动标记超期伏笔：超过预期回收范围 5 章以上仍未回收的伏笔标记为 overdue"""
+    import re
+    planted_result = await db.execute(
+        select(ForeshadowPool).where(
+            ForeshadowPool.project_id == project_id,
+            ForeshadowPool.status == "planted",
+        )
+    )
+    for fs in planted_result.scalars().all():
+        expected_max = fs.planted_chapter + 5
+        if fs.expected_payoff_range:
+            nums = re.findall(r'\d+', fs.expected_payoff_range)
+            if len(nums) >= 2:
+                expected_max = int(nums[1])
+            elif len(nums) == 1:
+                expected_max = int(nums[0])
+        if current_chapter_num > expected_max + 5:
+            fs.status = "overdue"

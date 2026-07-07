@@ -287,24 +287,41 @@ def build_novel_translate_messages(
 
 
 def build_novel_review_messages(
-    chapter_content: str, chapter_outline: str, context_summary: str
+    chapter_content: str,
+    chapter_outline: str = "",
+    context_summary: str = "",
+    previous_review: dict | None = None,
 ) -> list[dict]:
     """
-    novel-review Prompt 引擎：7维质量审查。
-    返回各维度评分及具体问题列表。
+    novel-review Prompt 引擎：7维质量审查（对齐 requirements_v7.md 3.2 节）。
+    7维：一致性 | AI味检测 | 节奏 | 人物OOC | 爽点密度 | 对话质量 | 结尾钩子
     """
+    prev_section = ""
+    if previous_review:
+        prev_section = f"""\n【前次审查结果（用于对比趋势）】
+{json.dumps(previous_review, ensure_ascii=False, indent=2)[:1500]}
+"""
+
     system_prompt = (
         "你是一名资深网文质检编辑，正在对一章网文正文做7维度质量审查。"
         "输出必须是合法 JSON，不要输出任何 JSON 之外的文字，格式如下：\n"
-        '{"dimensions": {"逻辑一致性": {"score": 0-10, "issues": []}, '
-        '"人物塑造": {"score": 0-10, "issues": []}, '
-        '"情节节奏": {"score": 0-10, "issues": []}, '
+        '{"dimensions": {"一致性": {"score": 0-10, "issues": []}, '
+        '"AI味检测": {"score": 0-10, "issues": []}, '
+        '"节奏": {"score": 0-10, "issues": []}, '
+        '"人物OOC": {"score": 0-10, "issues": []}, '
         '"爽点密度": {"score": 0-10, "issues": []}, '
         '"对话质量": {"score": 0-10, "issues": []}, '
-        '"文笔质量": {"score": 0-10, "issues": []}, '
-        '"悬念钩子": {"score": 0-10, "issues": []}}, '
+        '"结尾钩子": {"score": 0-10, "issues": []}}, '
         '"overall_score": 0-100, '
         '"summary": "综合评价（一句话）"}'
+        '\n\n各维度说明：'
+        '\n- 一致性：人物设定/时间线/世界观是否自洽，前后无矛盾'
+        '\n- AI味检测：是否存在AI生成的套路化表达（“于是/随后/突然/与此同时”等模板化转折、空洞的形容词堆砌）'
+        '\n- 节奏：章节内张弛节奏是否合理，信息密度是否适中'
+        '\n- 人物OOC：角色言行是否偏离设定性格（Out of Character），是否与人物卡描述一致'
+        '\n- 爽点密度：单位字数内爽点/高潮/反转分布是否达标'
+        '\n- 对话质量：对话是否自然、是否符合角色身份、是否推动剧情'
+        '\n- 结尾钩子：章末是否有足够悬念或未解问题驱动读者翻页'
     )
 
     user_prompt = f"""【本章大纲】
@@ -312,7 +329,7 @@ def build_novel_review_messages(
 
 【前文上下文摘要】
 {context_summary[:1500] or '无'}
-
+{prev_section}
 【本章正文】
 {chapter_content[:5000]}
 
