@@ -3,7 +3,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent.parent / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # 数据库
     database_url: str = "postgresql+asyncpg://novelcraft:novelcraft123@localhost:5432/novelcraft_v7"

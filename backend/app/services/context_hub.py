@@ -282,20 +282,6 @@ def _fallback_world_setting(project: NovelProject) -> str:
     return "\n\n".join(parts) if parts else "（知识库暂无内容）"
 
 
-def _keyword_vector(text: str, dims: int = 1536) -> list[float]:
-    """关键词特征向量（DeepSeek embeddings 不可用时的降级方案）。
-
-    基于 SHA-256 哈希生成确定性伪向量，确保相同输入得到相同向量。
-    """
-    import hashlib
-    h = hashlib.sha256(text.encode()).digest()
-    vec = []
-    for i in range(min(dims, len(h) * 4)):
-        b = h[i % len(h)]
-        vec.append((b / 255.0) * 2 - 1)
-    return vec + [0.0] * (dims - len(vec)) if dims > len(vec) else vec[:dims]
-
-
 async def index_world_setting(
     db: AsyncSession,
     project_id: uuid.UUID,
