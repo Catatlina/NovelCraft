@@ -21,4 +21,4 @@ RUN touch /app/app/ws/__init__.py
 
 EXPOSE 8100
 
-CMD ["sh", "-c", "alembic -c migrations/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8100"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 8100"]

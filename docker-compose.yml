@@ -22,7 +22,7 @@ services:
   worker:
     build: ./backend
     container_name: novelcraft-worker
-    command: celery -A app.tasks.celery_app worker --loglevel=info -c 2
+    command: celery -A app.tasks.pipeline.celery_app worker --loglevel=info -c 2
     env_file: .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://novelcraft:novelcraft123@db:5432/novelcraft

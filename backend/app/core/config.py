@@ -3,8 +3,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # env_file tries multiple paths: repo root (local dev) or /app (Docker container)
+    _env_paths = [
+        str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent.parent / ".env"),
+        str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent / ".env"),
+        "/app/.env",
+    ]
+    _env_file = next((p for p in _env_paths if __import__("pathlib").Path(p).exists()), ".env")
     model_config = SettingsConfigDict(
-        env_file=str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent.parent / ".env"),
+        env_file=_env_file,
         env_file_encoding="utf-8",
         extra="ignore",
     )
