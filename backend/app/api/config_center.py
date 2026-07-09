@@ -10,8 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_admin
-from app.core.config import settings
+from app.api.deps import require_admin
 from app.db.database import get_db
 from app.db.models import User
 
@@ -108,9 +107,7 @@ def _safe_key(key: str) -> str:
 
 
 @router.get("/", response_model=ConfigResponse)
-async def get_config(
-    _user: User = Depends(get_current_user),
-):
+async def get_config():
     """获取当前配置（敏感值脱敏）"""
     env = _read_env()
     return ConfigResponse(
@@ -146,10 +143,7 @@ async def update_config(
 
 
 @router.get("/status")
-async def config_status(
-    db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
-):
+async def config_status():
     """系统状态：API 健康 + DB 连接 + Redis + DeepSeek 配置状态"""
     import sys
     env = _read_env()
