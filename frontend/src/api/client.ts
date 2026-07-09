@@ -56,7 +56,7 @@ async function api<T>(
   path: string,
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET',
   body?: unknown,
-  options?: { headers?: Record<string, string>; timeout?: number; _isRetry?: boolean },
+  options?: { headers?: Record<string, string>; timeout?: number; _isRetry?: boolean; signal?: AbortSignal },
 ): Promise<T> {
   const url: string = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 
@@ -83,7 +83,7 @@ async function api<T>(
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
+      signal: options?.signal || controller.signal,
       credentials: 'include',  // httpOnly cookie 认证
     });
 

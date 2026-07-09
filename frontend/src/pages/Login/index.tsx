@@ -76,7 +76,7 @@ const LoginPage: React.FC = () => {
       return false;
     }
     if (password.length < 8) {
-      setValidationError('密码长度至少 6 位');
+      setValidationError('密码长度至少 8 位');
       return false;
     }
     if (tab === 'register') {

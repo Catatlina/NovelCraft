@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = ""
 
+    # 加密
+    account_encryption_key: str = ""
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         if not self.secret_key:
@@ -50,9 +53,13 @@ class Settings(BaseSettings):
             raise ValueError("ADMIN_PASSWORD 未设置，请在 .env 中配置")
         if not self.database_url:
             raise ValueError("DATABASE_URL 未设置，请在 .env 中配置数据库连接字符串")
-
-    # 加密
-    account_encryption_key: str = ""
+        # 启动时校验加密密钥格式（非空且为合法 Fernet key）
+        if self.account_encryption_key:
+            try:
+                from cryptography.fernet import Fernet
+                Fernet(self.account_encryption_key.encode() if isinstance(self.account_encryption_key, str) else self.account_encryption_key)
+            except Exception as e:
+                raise ValueError(f"ACCOUNT_ENCRYPTION_KEY 格式无效: {e}") from e
 
     # 服务
     api_host: str = "0.0.0.0"

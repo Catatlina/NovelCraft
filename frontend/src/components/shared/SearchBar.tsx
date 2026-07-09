@@ -70,6 +70,7 @@ const SearchBar: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // ---- 搜索 ----
   const performSearch = useCallback(async (q: string): Promise<void> => {
@@ -80,17 +81,23 @@ const SearchBar: React.FC = () => {
       return;
     }
 
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     try {
       const data: SearchResponse = await api<SearchResponse>(
         `/search?q=${encodeURIComponent(q.trim())}`,
         'GET',
+        undefined,
+        { signal: controller.signal },
       );
       setResults(data.results || []);
       setTotal(data.total || 0);
       setIsOpen(true);
-    } catch {
-      // 搜索失败静默处理
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setResults([]);
       setTotal(0);
     } finally {

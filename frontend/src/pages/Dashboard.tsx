@@ -135,7 +135,7 @@ const Dashboard: React.FC = () => {
           value={totalWords}
           unit="字"
           trend={totalWords > 0 ? 'up' : 'neutral'}
-          trendLabel={false ? '加载中...' : `共 ${projects?.length || 0} 个项目`}
+          trendLabel={opsLoading ? '加载中...' : `共 ${projects?.length || 0} 个项目`}
         />
         <KPICard
           icon={<BookOpen size={18} />}
