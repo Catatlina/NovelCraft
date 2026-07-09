@@ -299,3 +299,192 @@ async def resume_quick_start(
             "word_count": ch.word_count if ch else 0,
         } if ch else None,
     }
+
+
+# ══════════════════════════════════════════
+# 全自动流水线 + 拆文仿写
+# 参考: AI-Workbench backend/app/api/v1/novel.py
+# ══════════════════════════════════════════
+
+class AutoRequest(BaseModel):
+    platform: str = "qidian"
+    category: str = ""
+    extra_prompt: str = ""
+
+
+class ImitateRequest(BaseModel):
+    url: str = ""
+    text: str = ""
+    chapter_count: int = Field(default=3, ge=1, le=10)
+
+
+_AUTO_PLAN_PROMPT = """从以下扫榜报告中，选一个最易出爆款的选题方向，为该选题做全书规划。
+
+扫榜报告：
+{scan_text}
+
+额外要求：{extra_prompt}
+
+请严格按以下格式输出：
+
+【书名建议】
+给出3个备选书名，每行一个。第一个是你最推荐的。
+
+【题材】
+一句话描述题材方向
+
+【全书总纲】
+以3-5卷规划全书，每卷写清核心事件和情绪走向。
+
+【人物系统】
+主角（名字/年龄/身份/性格/核心驱动力）、主要配角（每人一行）
+
+【章节树】
+列出前10章每章一句话概要"""
+
+
+@router.post("/auto")
+async def auto_pipeline(
+    req: AutoRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """全自动流水线: 扫榜→全书规划→黄金三章细纲→三章正文→入库"""
+    import re as _re
+    step = "scan"
+    try:
+        scan_text = await _call_llm(
+            f"分析{req.platform}平台{req.category or '热门'}榜单趋势。爆款题材TOP5、热门叙事模式。",
+            temperature=0.7, max_tokens=2000)
+
+        step = "plan"
+        plan_text = await _call_llm(
+            _AUTO_PLAN_PROMPT.format(
+                scan_text=scan_text[:2500],
+                extra_prompt=req.extra_prompt or "强钩子高爽点开篇"),
+            temperature=0.8, max_tokens=4000)
+
+        title = ""
+        for pat in [r'【书名建议】\s*\n?\s*(.+?)(?:\n|$)', r'《(.+?)》']:
+            m = _re.search(pat, plan_text, _re.MULTILINE)
+            if m:
+                title = _re.sub(r'【.*?】|《|》|备选书名|^\d+\.\s*', '', m.group(1)).strip(' -–,.。')[:40]
+                if '、' in title: title = title.split('、')[0].strip()
+                if len(title) >= 2: break
+        if len(title) < 2: title = f"{req.category or '热门'}:重生逆袭"
+
+        outline_match = _re.search(r'【全书总纲】\s*\n(.+)', plan_text, _re.DOTALL)
+        overall_outline = outline_match.group(1).strip()[:3000] if outline_match else plan_text[:2000]
+
+        chars_match = _re.search(r'【人物系统】\s*\n(.+)', plan_text, _re.DOTALL)
+        characters_text = chars_match.group(1).strip()[:2000] if chars_match else ""
+
+        step = "outlines"
+        three_outlines = await _call_llm(
+            f"基于以下全书规划，为《{title}》前三章各写一份详尽的细纲。"
+            f"要求每章包含：核心事件、目标情绪、章首钩子、爽点设计、章尾钩子。\n\n{plan_text[:2500]}",
+            temperature=0.8, max_tokens=4000)
+
+        step = "chapters"
+        chapters_content, chapter_titles = [], []
+        for ch_num in [1, 2, 3]:
+            ch_outline = _extract_section(three_outlines, f"第{ch_num}章细纲", 800)
+            ch_content = await _call_llm(
+                f"你是资深网文作者。写《{title}》第{ch_num}章的完整正文。"
+                f"章首钩子，章尾卡关键处。1500-3000字。\n\n规划：{plan_text[:1500]}\n细纲：{ch_outline}",
+                temperature=0.9, max_tokens=4000)
+            chapters_content.append(ch_content)
+            chapter_titles.append(_extract_chapter_title(ch_content) or f"第{ch_num}章")
+
+        # Save to DB
+        project = NovelProject(
+            id=_uuid.uuid4(), user_id=user.id,
+            title=title, genre=req.category or "自动生成", status="writing",
+            overall_outline=overall_outline, description=plan_text[:500],
+            characters_json=[{"name": c.strip()} for c in characters_text.split('\n') if c.strip()][:20],
+            chapter_tree=[], target_words=1_000_000, total_chapters=3, total_words=0,
+        )
+        db.add(project); await db.flush()
+
+        saved, total_words = [], 0
+        for i, (c, name) in enumerate(zip(chapters_content, chapter_titles)):
+            summary = await _call_llm(f"用150字总结:\n\n{c[:2500]}", temperature=0.3, max_tokens=300)
+            ch = NovelChapter(id=_uuid.uuid4(), project_id=project.id,
+                chapter_num=i+1, title=f"第{i+1}章 {name}",
+                content=c, summary=summary, word_count=len(c or ""), status="draft")
+            db.add(ch); total_words += len(c or "")
+            saved.append({"chapter_num":i+1, "title":ch.title, "content_preview":c[:300]+"...", "word_count":len(c or "")})
+        project.total_words = total_words
+        await db.commit()
+
+        return {"project_id":str(project.id), "title":title, "scan":scan_text,
+                "plan":plan_text, "three_outlines":three_outlines, "chapters":saved}
+    except Exception as e:
+        raise HTTPException(502, f"流水线失败(step={step}): {str(e)[:200]}")
+
+
+@router.post("/imitate")
+async def imitate_novel(
+    req: ImitateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """拆文仿写: 输入URL/文本→拆解分析→提取文风→仿写新章→入库"""
+    import re as _re
+    import httpx as _httpx
+    step = "fetch"
+    try:
+        text = req.text
+        if req.url and not text:
+            async with _httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.get(req.url, headers={
+                    "User-Agent": "Mozilla/5.0"})
+                text = _re.sub(r"<[^>]+>", "", resp.text)
+                text = _re.sub(r"\s+", " ", text)[:8000]
+        if not text or len(text) < 100:
+            raise HTTPException(400, "内容太短，至少100字")
+
+        step = "analyze"
+        analysis = await _call_llm(
+            f"分析以下小说前{req.chapter_count}章: 文风特点、叙事节奏、爽点规律、人物模板、语言习惯。\n\n{text[:6000]}",
+            temperature=0.5, max_tokens=3000)
+
+        step = "write"
+        chapter = await _call_llm(
+            f"根据以下拆文分析，用对标书文风写全新第一章。题材不变，人设情节全新。\n"
+            f"分析:{analysis[:3000]}\n原文文风参考:{text[:2000]}",
+            temperature=0.9, max_tokens=4000)
+
+        title = "仿写作品"
+        m = _re.search(r"《(.+?)》|^#\s*(.+)", chapter, _re.MULTILINE)
+        if m: title = _re.sub(r'AI生成|自动生成', '', (m.group(1) or m.group(2))).strip(' -–,.。')[:40]
+
+        project = NovelProject(id=_uuid.uuid4(), user_id=user.id,
+            title=title, genre="仿写", status="writing",
+            overall_outline=analysis[:2000], total_chapters=1, total_words=len(chapter or ""))
+        db.add(project); await db.flush()
+        ch = NovelChapter(id=_uuid.uuid4(), project_id=project.id,
+            chapter_num=1, title="仿写第一章", content=chapter,
+            summary=analysis[:500], word_count=len(chapter or ""), status="draft")
+        db.add(ch); await db.commit()
+
+        return {"project_id":str(project.id), "title":title, "analysis":analysis, "imitation":chapter}
+    except HTTPException: raise
+    except Exception as e: raise HTTPException(502, f"拆文仿写失败(step={step}): {str(e)[:200]}")
+
+
+def _extract_section(text: str, header: str, max_len: int = 1000) -> str:
+    import re as _re
+    pat = _re.compile(rf'#+\s*{_re.escape(header)}\s*\n?(.+?)(?=\n#|\Z)', _re.DOTALL)
+    m = pat.search(text)
+    return m.group(1).strip()[:max_len] if m else text[:max_len]
+
+
+def _extract_chapter_title(content: str) -> str:
+    import re as _re
+    m = _re.search(r"^#\s*第\d+章\s*[：:\s]*(.+)", content or "", _re.MULTILINE)
+    if m: return m.group(1).strip()
+    for line in (content or "").strip().split("\n"):
+        line = line.strip("# ").strip()
+        if line and not line.startswith("```"): return line[:40]
+    return ""
