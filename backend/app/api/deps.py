@@ -44,7 +44,7 @@ async def get_current_user(
     if not user or not user.is_active:
         raise HTTPException(401, "用户不存在或已禁用")
     # 校验 token_version：改密/登出后旧 token 自动失效
-    import jwt as _jwt
+    from jose import jwt as _jwt, JWTError
     try:
         payload = _jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm],
                               options={"verify_exp": False})
