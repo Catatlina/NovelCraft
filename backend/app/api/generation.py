@@ -6,6 +6,7 @@
 批量生成（走五级调度队列）在 Phase 4 实现，会复用这里的 generate_single_chapter() 核心逻辑，
 不重复写生成逻辑，队列层只负责编排循环调用。
 """
+import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -233,9 +234,9 @@ async def _generate_single_chapter(db: AsyncSession, project: NovelProject, mode
     input_tokens = int(usage.get("prompt_tokens", 0) or 0)
     output_tokens = int(usage.get("completion_tokens", 0) or 0)
     used_tokens = int(usage.get("total_tokens", input_tokens + output_tokens) or 0)
-    # Conservative default DeepSeek cost placeholders; production can override through billing config later.
-    unit_price_input = 0.0
-    unit_price_output = 0.0
+    # Conservative DeepSeek cost; override via env for production billing.
+    unit_price_input = float(os.environ.get("DEEPSEEK_PRICE_INPUT_PER_1M", "0.14"))   # $/1M input tokens
+    unit_price_output = float(os.environ.get("DEEPSEEK_PRICE_OUTPUT_PER_1M", "0.28"))  # $/1M output tokens
     cost_usd = (input_tokens / 1_000_000 * unit_price_input) + (output_tokens / 1_000_000 * unit_price_output)
     project.total_words = (project.total_words or 0) + chapter.word_count
     project.token_used = (project.token_used or 0) + used_tokens

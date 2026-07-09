@@ -37,7 +37,6 @@ const SettingsPage: React.FC = () => {
   const { isDark, toggle: toggleDark } = useThemeStore();
   const projectId: string | null = useProjectStore((s) => s.selectedProjectId);
 
-  const [apiBase, setApiBase] = useState<string>(API_BASE);
   const [showKey, setShowKey] = useState<boolean>(false);
   const [deepseekKey, setDeepseekKey] = useState<string>('');
   const [deepseekModel, setDeepseekModel] = useState<string>('deepseek-chat');
@@ -53,7 +52,7 @@ const SettingsPage: React.FC = () => {
       .catch(() => undefined);
   }, []);
 
-  const handleSaveApi = useCallback(async () => {
+  const handleSaveAiSettings = useCallback(async () => {
     setSaveStatus('saving');
     try {
       const res = await api<{ has_deepseek_api_key: boolean; deepseek_model: string }>(
@@ -140,53 +139,45 @@ const SettingsPage: React.FC = () => {
             </p>
           </div>
 
-          {/* API 地址 */}
+          {/* API 地址（构建时配置，不可运行时修改） */}
           <div>
             <label className="mb-1 block text-[13px] font-semibold text-gray-500 dark:text-gray-400">
               API 接口地址
             </label>
-            <div className="flex gap-2">
-              <input
-                className="input flex-1"
-                value={apiBase}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setApiBase(e.target.value)
-                }
-                placeholder="http://localhost:8100/api/v1"
-              />
-              <button
-                className="btn-primary"
-                onClick={handleSaveApi}
-                disabled={saveStatus === 'saving'}
-              >
-                <Save size={16} />
-                <span>
-                  {saveStatus === 'saving'
-                    ? '保存中…'
-                    : saveStatus === 'saved'
-                      ? '已保存'
-                      : saveStatus === 'error'
-                        ? '保存失败'
-                        : '保存'}
+            <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50">
+              <div className="flex items-center gap-2">
+                <Zap size={14} className="text-primary-500" />
+                <span className="text-[13px] font-medium text-gray-600 dark:text-gray-300">
+                  当前 API 地址：
                 </span>
-              </button>
+                <code className="rounded bg-gray-200 px-2 py-0.5 text-[12px] text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                  {API_BASE}
+                </code>
+              </div>
             </div>
             <p className="mt-1 text-[12px] text-gray-400 dark:text-gray-500">
-              后端 API 地址，修改保存后立即生效
+              通过 <code className="text-[11px]">VITE_API_BASE_URL</code> 环境变量在构建时配置
             </p>
           </div>
 
-          {/* API 基地址当前值 */}
-          <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50">
-            <div className="flex items-center gap-2">
-              <Zap size={14} className="text-primary-500" />
-              <span className="text-[13px] font-medium text-gray-600 dark:text-gray-300">
-                当前 API 地址：
+          {/* 保存按钮 */}
+          <div className="flex justify-end">
+            <button
+              className="btn-primary"
+              onClick={handleSaveAiSettings}
+              disabled={saveStatus === 'saving'}
+            >
+              <Save size={16} />
+              <span>
+                {saveStatus === 'saving'
+                  ? '保存中…'
+                  : saveStatus === 'saved'
+                    ? '已保存'
+                    : saveStatus === 'error'
+                      ? '保存失败'
+                      : '保存 AI 配置'}
               </span>
-              <code className="rounded bg-gray-200 px-2 py-0.5 text-[12px] text-gray-700 dark:bg-gray-700 dark:text-gray-300">
-                {API_BASE}
-              </code>
-            </div>
+            </button>
           </div>
         </div>
       </section>
