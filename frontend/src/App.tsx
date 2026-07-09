@@ -9,7 +9,7 @@ import { useAuthStore } from '@/store/authStore';
  * 各页面模块将在此被动态导入，减少首屏包体积
  */
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
-const WritingWorkspace = lazy(() => import('@/pages/WritingWorkspace'));
+const WritingWorkspace = lazy(() => import('@/pages/WritingWorkspaceV2'));
 const ForeshadowBoard = lazy(() => import('@/pages/ForeshadowBoard'));
 const QualityDashboard = lazy(() => import('@/pages/QualityDashboard'));
 const TrendAnalysis = lazy(() => import('@/pages/TrendAnalysis'));
