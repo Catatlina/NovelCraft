@@ -204,7 +204,7 @@ const Dashboard: React.FC = () => {
           />
         ) : (
           <div className="flex items-center justify-center py-12 text-sm text-gray-400 dark:text-gray-500">
-            {false ? '加载中...' : '暂无项目，请创建一个'}
+            {opsLoading ? '加载中...' : '暂无项目，请创建一个'}
           </div>
         )}
       </section>
@@ -225,7 +225,7 @@ const Dashboard: React.FC = () => {
             )}
           </div>
 
-          {false ? (
+          {opsLoading ? (
             <div className="flex items-center justify-center py-8 text-sm text-gray-400">
               加载中...
             </div>
