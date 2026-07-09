@@ -16,16 +16,15 @@ import json
 # ============================================================
 
 
-def build_novel_write_messages(context: dict, mode: str = "continue") -> list[dict]:
+def build_novel_write_messages(context: dict, mode: str = "continue", template=None) -> list[dict]:
     """
     novel-write Prompt 引擎。
     mode: "continue"（续写下一章） | "first_chapter"（第一章） | "imitate"（仿写，Phase4补充）
 
-    输出要求模型返回结构化 JSON，而不是纯文本，方便：
-    - 直接落库 content/title/summary
-    - 自动提取本章新埋伏笔（对应 3.1 伏笔埋点）和回收的伏笔（对应伏笔回收检测）
+    如果传入 template (TemplateRef)，使用 DB 模板的 system_prompt/temperature；
+    否则使用硬编码默认值（降级路径）。
     """
-    system_prompt = (
+    system_prompt = template.system_prompt if template else (
         "你是一名专业网络小说写手，正在为付费连载平台撰写正文。"
         "你必须严格遵守下面提供的上下文设定，不能自行发明与设定冲突的内容。"
         "输出必须是合法 JSON，不要输出任何 JSON 之外的文字，格式如下：\n"

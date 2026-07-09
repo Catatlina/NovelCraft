@@ -135,18 +135,19 @@ async def _generate_single_chapter(db: AsyncSession, project: NovelProject, mode
     # 2) 长耗时操作：不持有项目行锁。
     context = await context_hub.assemble_context(db, project.id, target_chapter_num)
 
-    # Prompt 版本跟踪: 记录当前使用的 Prompt 版本参数
-    from app.services.prompt_registry import get_prompt_registry
-    registry = get_prompt_registry()
-    pv = registry.get("novel-write")
+    # Prompt 版本跟踪: 加载 DB 模板 (DB驱动→硬编码降级)
+    from app.services.prompt_registry import get_prompt_registry, load_template
+    registry = await get_prompt_registry(db)
+    tpl = await load_template(db, "novel-write")
     prompt_params = {
-        "version": pv.version if pv else 1,
-        "temperature": pv.temperature if pv else 0.9,
-        "max_tokens": pv.max_tokens if pv else 4000,
+        "version": tpl.version,
+        "temperature": tpl.temperature,
+        "max_tokens": tpl.max_tokens,
         "mode": mode,
     }
 
-    messages = prompts.build_novel_write_messages(context, mode=mode)
+    # 使用 DB 模板构建 messages（降级时走 prompts.py 硬编码）
+    messages = prompts.build_novel_write_messages(context, mode=mode, template=tpl)
 
     try:
         result = await chat_completion(messages)

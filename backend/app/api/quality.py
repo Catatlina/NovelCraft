@@ -171,7 +171,7 @@ async def _do_7d_review(
             if prev_overall is not None and new_overall is not None:
                 try:
                     from app.services.prompt_registry import get_prompt_registry
-                    registry = get_prompt_registry()
+                    registry = await get_prompt_registry(db)
                     summary = data.get("summary", "")
                     await registry.log_auto_optimization(
                         db=db,
