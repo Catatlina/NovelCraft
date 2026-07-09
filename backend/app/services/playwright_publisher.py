@@ -15,9 +15,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# 截图保存目录
-SCREENSHOT_DIR = Path(os.environ.get("PUBLISH_SCREENSHOT_DIR", "/tmp/novelcraft_screenshots"))
-SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+# 截图保存目录 — 懒初始化，避免模块导入时因权限问题导致 Celery worker 无法启动
+_SCREENSHOT_DIR: Path | None = None
+
+def _get_screenshot_dir() -> Path:
+    global _SCREENSHOT_DIR
+    if _SCREENSHOT_DIR is None:
+        _SCREENSHOT_DIR = Path(os.environ.get("PUBLISH_SCREENSHOT_DIR", "/tmp/novelcraft_screenshots"))
+        _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    return _SCREENSHOT_DIR
 
 
 class BasePublisher(ABC):
@@ -48,7 +54,7 @@ class BasePublisher(ABC):
     async def screenshot(self, page, step_name: str) -> str:
         """截取当前页面并保存为 PNG，返回文件路径。"""
         filename = f"{self.platform_name}_{step_name}_{uuid.uuid4().hex[:8]}.png"
-        filepath = SCREENSHOT_DIR / filename
+        filepath = _get_screenshot_dir() / filename
         await page.screenshot(path=str(filepath), full_page=True)
         return str(filepath)
 

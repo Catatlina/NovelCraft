@@ -48,7 +48,11 @@ async def analyze_feedback(project_id: str, db: AsyncSession = Depends(get_db),
                      max(sigs_by_ch.get(cid, {}).get("n", 1), 1) * 100, 1)}
                     for cid, num, title, wc in ch_list]
     try:
-        prompt = f"分析以下章节阅读数据并生成3条Prompt优化建议:\n{json.dumps(chapter_data, ensure_ascii=False)[:6000]}\n输出JSON: {{best_chapter, worst_chapter, correlations, prompt_suggestions, summary}}"
+        prompt = (
+            "分析以下章节阅读数据并生成3条Prompt优化建议:\n"
+            + json.dumps(chapter_data, ensure_ascii=False)[:6000]
+            + "\n输出JSON: {best_chapter, worst_chapter, correlations, prompt_suggestions, summary}"
+        )
         r = await chat_completion([{"role": "user", "content": prompt}], temperature=0.3)
         raw = r["content"].strip()
         if raw.startswith("```"): raw = raw.strip("`").removeprefix("json").strip()

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -95,7 +95,7 @@ async def _run_publish_execution(
         execution, project = row
 
         execution.status = "running"
-        execution.steps = [{"step": "started", "ts": datetime.utcnow().isoformat()}]
+        execution.steps = [{"step": "started", "ts": datetime.now(timezone.utc).isoformat()}]
         await db.commit()
 
         try:
@@ -126,7 +126,7 @@ async def _run_publish_execution(
             if not chapters_data:
                 execution.status = "failed"
                 execution.logs = "No valid chapters to publish"
-                execution.steps.append({"step": "no_chapters", "ts": datetime.utcnow().isoformat()})
+                execution.steps.append({"step": "no_chapters", "ts": datetime.now(timezone.utc).isoformat()})
                 await db.commit()
                 return
 
@@ -150,7 +150,7 @@ async def _run_publish_execution(
                 except Exception as e:
                     execution.status = "failed"
                     execution.logs = f"平台账号凭证解密失败: {type(e).__name__}: {e}"
-                    execution.steps.append({"step": "credentials_error", "ts": datetime.utcnow().isoformat(), "error": str(e)})
+                    execution.steps.append({"step": "credentials_error", "ts": datetime.now(timezone.utc).isoformat(), "error": str(e)})
                     await db.commit()
                     return
 
@@ -181,7 +181,7 @@ async def _run_publish_execution(
             execution.logs = "\n---\n".join(all_logs)
             execution.steps.append({
                 "step": "completed",
-                "ts": datetime.utcnow().isoformat(),
+                "ts": datetime.now(timezone.utc).isoformat(),
                 "results": all_results,
             })
 
@@ -190,7 +190,7 @@ async def _run_publish_execution(
             execution.logs = f"Exception: {type(e).__name__}: {e}"
             execution.steps.append({
                 "step": "error",
-                "ts": datetime.utcnow().isoformat(),
+                "ts": datetime.now(timezone.utc).isoformat(),
                 "error": str(e),
             })
 
@@ -241,7 +241,7 @@ async def execute_publish(
         # Redis/Celery 不可用时不能留下永久 pending 任务；明确回写入队失败状态。
         execution.status = "failed_enqueue"
         execution.logs = f"Celery enqueue failed: {type(e).__name__}: {e}"
-        execution.steps = [{"step": "enqueue_failed", "ts": datetime.utcnow().isoformat(), "error": str(e)}]
+        execution.steps = [{"step": "enqueue_failed", "ts": datetime.now(timezone.utc).isoformat(), "error": str(e)}]
         await db.commit()
         raise HTTPException(503, "发布任务入队失败，请检查 Redis/Celery 服务") from e
 

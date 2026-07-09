@@ -42,8 +42,14 @@ async def search_projects(q: str = Query(default=""), status: str | None = None,
 # Multi-format Export
 # ---------------------------------------------------------------------------
 
-EXPORT_DIR = Path(__file__).resolve().parent.parent.parent / "exports"
-EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+_EXPORT_DIR: Path | None = None
+
+def _get_export_dir() -> Path:
+    global _EXPORT_DIR
+    if _EXPORT_DIR is None:
+        _EXPORT_DIR = Path(__file__).resolve().parent.parent.parent / "exports"
+        _EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    return _EXPORT_DIR
 
 
 def _build_chapter_lines(chapters: list[NovelChapter], project_title: str) -> list[str]:

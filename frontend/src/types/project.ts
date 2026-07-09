@@ -36,13 +36,13 @@ export interface ProjectCreate {
 
 /** 状态迁移请求 */
 export interface TransitionRequest {
-  new_state: ProjectState;
-  note?: string;
+  target_state: ProjectState;
+  reason?: string;
 }
 
 /** 大纲更新请求 */
 export interface ProjectOutlineUpdate {
-  outline: string;
+  overall_outline: string;
 }
 
 /** 世界观更新请求 */

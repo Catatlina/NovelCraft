@@ -88,7 +88,7 @@ const Dashboard: React.FC = () => {
       if (activeProject) {
         setLocalSelectedProjectId(activeProject.id);
         transitionMutation.mutate(
-          { new_state: newState, note: `从 ${STATE_LABELS[activeProject.current_state]} 迁移到 ${STATE_LABELS[newState]}` },
+          { target_state: newState, reason: `从 ${STATE_LABELS[activeProject.current_state]} 迁移到 ${STATE_LABELS[newState]}` },
           {
             onSuccess: (updated: Project) => {
               setLocalSelectedProjectId(updated.id);

@@ -111,20 +111,22 @@ async def _check_single_rule(
         '"suggestion": "修改建议（如果违规）"}'
     )
 
-    user_prompt = f"""【规则信息】
-- 名称：{rule.rule_name}
-- 类型：{rule_type_desc}
-- 严重性：{rule.severity}（error=硬性违规, warn=建议性违规）
-- 描述：{rule.description or '无额外描述'}
-- DSL 表达式：{rule.dsl_expression}
-
-【项目背景】
-{project_context[:1000]}
-
-【章节 #{chapter_num} 内容】
-{chapter_text[:3000]}
-
-请判断本章节内容是否违反了上述规则。按 system prompt 约定的 JSON 格式输出。"""
+    user_prompt = (
+        "【规则信息】\n"
+        "- 名称：" + str(rule.rule_name) + "\n"
+        "- 类型：" + str(rule_type_desc) + "\n"
+        "- 严重性：" + str(rule.severity) + "（error=硬性违规, warn=建议性违规）\n"
+        "- 描述：" + str(rule.description or '无额外描述') + "\n"
+        "- DSL 表达式：" + str(rule.dsl_expression) + "\n"
+        "\n"
+        "【项目背景】\n"
+        + str(project_context[:1000]) + "\n"
+        "\n"
+        "【章节 #" + str(chapter_num) + " 内容】\n"
+        + str(chapter_text[:3000]) + "\n"
+        "\n"
+        "请判断本章节内容是否违反了上述规则。按 system prompt 约定的 JSON 格式输出。"
+    )
 
     try:
         result = await chat_completion(
