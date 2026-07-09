@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, BookOpen, RefreshCw, Zap, FileText, ChevronRight } from 'lucide-react';
-import { api } from '../../api/client';
+import { api } from '@/api/client';
 
 const GENRES = ['修真', '玄幻', '都市', '科幻', '历史', '悬疑', '游戏', '轻小说', '女频'];
 
