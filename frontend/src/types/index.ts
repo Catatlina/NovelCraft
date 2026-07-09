@@ -1,6 +1,6 @@
 /** 类型定义总入口 — 从各模块重新导出所有类型 */
 
-export type { User, LoginRequest, LoginResponse, RegisterRequest } from './auth';
+export type { User, LoginRequest, LoginResponse, RefreshResponse, RegisterRequest } from './auth';
 export type {
   ProjectState,
   StateHistoryEntry,
@@ -10,7 +10,7 @@ export type {
   ProjectOutlineUpdate,
   ProjectWorldUpdate,
 } from './project';
-export type { ChapterStatus, Chapter, GenerateChapterRequest } from './chapter';
+export type { ChapterStatus, Chapter, ChapterSummary, GenerateChapterRequest } from './chapter';
 export type {
   ForeshadowStatus,
   Foreshadow,

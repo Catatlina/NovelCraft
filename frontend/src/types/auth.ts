@@ -18,9 +18,11 @@ export interface LoginRequest {
 
 /** 登录响应 */
 export interface LoginResponse {
-  access_token: string;
-  token_type: string;
   user: User;
+}
+
+export interface RefreshResponse {
+  status: string;
 }
 
 /** 注册请求 */

@@ -53,17 +53,10 @@ const ACTIVITY_COLORS: Record<string, string> = {
  * 总控驾驶舱 — 主页面
  * 展示 KPI、状态机、项目列表、任务队列、快捷操作、活动 Feed
  */
-/** 模拟项目数据（后端未启动时展示） */
-const MOCK_PROJECTS: Project[] = [
-  { id: 'demo-project-001', user_id: 'demo', title: '星辰之主', target_platform: '起点', target_words: 1000000, current_words: 85000, current_state: 'writing', state_history: [], outline: '少年林凡偶获星辰之力，从废柴逆袭为绝世强者。全书8卷，从宗门试炼到诸天争霸。', world_setting: '修真世界，境界：练气→筑基→金丹→元婴→化神→渡劫→飞升。', created_at: '2026-06-01T00:00:00Z', updated_at: '2026-07-06T00:00:00Z' },
-  { id: 'demo-project-002', user_id: 'demo', title: '都市医仙', target_platform: '番茄', target_words: 800000, current_words: 1200, current_state: 'outline', state_history: [], outline: '被赶出家门的医学天才获得医仙传承，从此悬壶济世。都市与修真交织。', world_setting: '现代都市中的隐世修真势力。', created_at: '2026-07-01T00:00:00Z', updated_at: '2026-07-05T00:00:00Z' },
-  { id: 'demo-project-003', user_id: 'demo', title: '末日求生手册', target_platform: '晋江', target_words: 500000, current_words: 0, current_state: 'idea', state_history: [], outline: '病毒爆发后普通人如何在废墟中重建文明。', world_setting: '近未来，全球病毒爆发导致社会崩溃。', created_at: '2026-07-04T00:00:00Z', updated_at: '2026-07-04T00:00:00Z' },
-];
-
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { data: apiProjects } = useProjects();
-  const projects: Project[] = (apiProjects && (apiProjects as Project[]).length > 0) ? apiProjects as Project[] : MOCK_PROJECTS;
+  const projects: Project[] = (apiProjects as Project[]) || [];
   const { data: opsData, isLoading: opsLoading } = useOpsDashboard();
   const { data: pipelineData } = usePipelineStatus();
 

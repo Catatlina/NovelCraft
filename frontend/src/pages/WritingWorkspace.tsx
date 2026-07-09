@@ -1,13 +1,12 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { useProject, useChapters } from '@/hooks/useApi';
+import { useProject, useChapters, useChapter, useGenerateChapter } from '@/hooks/useApi';
 import { STATE_LABELS } from '@/utils/helpers';
 import ChapterNav from '@/pages/WritingWorkspace/ChapterNav';
 import Editor from '@/pages/WritingWorkspace/Editor';
 import ContextPanel from '@/pages/WritingWorkspace/ContextPanel';
 import QualityBall from '@/pages/WritingWorkspace/QualityBall';
-import type { Chapter } from '@/types';
 
 /** 移动端 Tab 类型 */
 type MobileTab = 'nav' | 'editor' | 'context';
@@ -16,33 +15,54 @@ type MobileTab = 'nav' | 'editor' | 'context';
  * AI 创作工作台 — 主页面
  * 三栏布局：左侧章节导航 + 中央编辑器 + 右侧 Context Hub
  * 响应式：移动端使用 Tab 切换
+ *
+ * P0-1 fix: 章节列表(useChapters)现在只返回摘要，不含正文——正文改用
+ * useChapter(activeChapterId) 按需单独拉取当前选中的这一章，Editor/
+ * ContextPanel/QualityBall 三个子组件消费的是这个"当前章节详情"query，
+ * 不再从列表数组里 find() 出来。
  */
 const WritingWorkspace: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
 
-  // 数据加载 — hooks 已内置 mock fallback
+  // 数据加载 — API真实数据；失败显示错误状态
   const { data: project } = useProject(projectId);
-  const { data: chapters } = useChapters(projectId);
+  const { data: chapters, isLoading: chaptersListLoading } = useChapters(projectId);
 
   // 选中章节
   const [activeChapterId, setActiveChapterId] = useState<string | undefined>(undefined);
   const [mobileTab, setMobileTab] = useState<MobileTab>('editor');
 
-  const activeChapter: Chapter | undefined = useMemo(() => {
-    if (!chapters?.length) return undefined;
-    if (!activeChapterId) return chapters[0];
-    return chapters.find((ch: Chapter) => ch.id === activeChapterId);
+  // 章节列表加载完成后，默认选中第一章（此前这个默认值是在渲染时从
+  // chapters数组里inline算出来的；现在正文靠单独请求，必须显式把
+  // activeChapterId设置成第一章的id，才能触发useChapter去拉正文）
+  useEffect(() => {
+    if (!activeChapterId && chapters && chapters.length > 0) {
+      setActiveChapterId(chapters[0].id);
+    }
   }, [chapters, activeChapterId]);
+
+  const { data: activeChapter, isLoading: chapterLoading } = useChapter(activeChapterId);
 
   const handleSelectChapter = useCallback((chapterId: string) => {
     setActiveChapterId(chapterId);
     setMobileTab('editor');
   }, []);
 
+  // 章节生成
+  const genMutation = useGenerateChapter(projectId || '');
+
   const handleGenerateChapter = useCallback(() => {
-    void ((chapters?.length || 0) > 0 ? Math.max(...(chapters || []).map(c => c.chapter_num)) + 1 : 1);
-  }, [chapters]);
+    if (!projectId) return;
+    genMutation.mutate(
+      { mode: 'continue' },
+      {
+        onSuccess: () => {
+          // React Query will auto-invalidate and refresh chapter list
+        },
+      }
+    );
+  }, [projectId, genMutation]);
 
   // 等待数据就绪
   if (!project) {
@@ -66,7 +86,7 @@ const WritingWorkspace: React.FC = () => {
           <ChapterNav
             project={project}
             chapters={chapters ?? []}
-            chaptersLoading={false}
+            chaptersLoading={chaptersListLoading}
             activeChapter={activeChapterId}
             onSelect={handleSelectChapter}
             onGenerate={handleGenerateChapter}
@@ -78,7 +98,7 @@ const WritingWorkspace: React.FC = () => {
           <Editor
             project={project}
             chapter={activeChapter}
-            chaptersLoading={false}
+            chaptersLoading={chapterLoading}
             onBack={() => navigate('/')}
           />
         </div>
@@ -114,7 +134,7 @@ const WritingWorkspace: React.FC = () => {
               <ChapterNav
                 project={project}
                 chapters={chapters ?? []}
-                chaptersLoading={false}
+                chaptersLoading={chaptersListLoading}
                 activeChapter={activeChapterId}
                 onSelect={handleSelectChapter}
                 onGenerate={handleGenerateChapter}
@@ -125,7 +145,7 @@ const WritingWorkspace: React.FC = () => {
             <Editor
               project={project}
               chapter={activeChapter}
-              chaptersLoading={false}
+              chaptersLoading={chapterLoading}
               onBack={() => navigate('/')}
             />
           )}

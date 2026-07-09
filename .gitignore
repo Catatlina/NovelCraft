@@ -22,6 +22,7 @@ Thumbs.db
 dist/
 build/
 *.tar.gz
+*.tsbuildinfo
 
 # Frontend
 node_modules/
@@ -30,8 +31,8 @@ frontend/mobile/
 frontend/www/
 frontend/js/
 frontend/css/
-frontend/package*.json
 frontend/capacitor.config.json
 
 # Backup
 backend_v31_backup/
+.hermes/desktop-attachments/

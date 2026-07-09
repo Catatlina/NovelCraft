@@ -12,37 +12,27 @@ import { Languages, Send, Plus, X, ChevronDown, Globe, BookOpen } from 'lucide-r
 import { useChapters } from '@/hooks/useApi';
 import { api } from '@/api/client';
 import LoadingSpinner from '@/components/shared/LoadingSpinner';
-import type { Chapter } from '@/types';
+import type { ChapterSummary } from '@/types';
 
 // ============================================================
 // Constants
 // ============================================================
 
+// 与后端 prompts.py 的 PLATFORM_TRANSLATE_CONFIGS 保持一致——此前这里列了
+// amazon_kdp/narou/munpia/dreame 四个后端根本不支持的平台(选了会400)，
+// 却漏了后端真正支持的 wattpad/scribblehub。
 const PLATFORMS: string[] = [
   'webnovel',
-  'amazon_kdp',
-  'narou',
-  'munpia',
-  'dreame',
   'royalroad',
+  'wattpad',
+  'scribblehub',
 ];
 
 const PLATFORM_LABELS: Record<string, string> = {
   webnovel: 'Webnovel (英文)',
-  amazon_kdp: 'Amazon KDP (英文)',
-  narou: 'Narou (日文)',
-  munpia: 'Munpia (韩文)',
-  dreame: 'Dreame (多语种)',
   royalroad: 'Royal Road (英文)',
-};
-
-const PLATFORM_LANGS: Record<string, string> = {
-  webnovel: 'en',
-  amazon_kdp: 'en',
-  narou: 'ja',
-  munpia: 'ko',
-  dreame: 'multi',
-  royalroad: 'en',
+  wattpad: 'Wattpad (英文)',
+  scribblehub: 'Scribble Hub (英文)',
 };
 
 // ============================================================
@@ -85,7 +75,7 @@ const TranslatePage: React.FC = () => {
 
   const selectAll = useCallback((): void => {
     if (!chapters) return;
-    setSelectedChapterIds(new Set(chapters.map((c: Chapter) => c.id)));
+    setSelectedChapterIds(new Set(chapters.map((c: ChapterSummary) => c.id)));
   }, [chapters]);
 
   const deselectAll = useCallback((): void => {
@@ -114,33 +104,44 @@ const TranslatePage: React.FC = () => {
     setTranslatedText('');
 
     // 收集选中的章节原文用于预览
-    const selected: Chapter[] = (chapters || []).filter((ch: Chapter) =>
+    const selected: ChapterSummary[] = (chapters || []).filter((ch: ChapterSummary) =>
       selectedChapterIds.has(ch.id),
     );
+    // 列表接口(P0-1修复后)不再带正文，这里的预览只能先显示标题占位；
+    // 真正提交翻译时后端会按 chapter_id 直接读取数据库里的正文，
+    // 不依赖这段本地预览文本的准确性。
     const combinedSource: string = selected
-      .map((ch: Chapter) => `## ${ch.title}\n\n${ch.content || ''}`)
+      .map((ch: ChapterSummary) => `## ${ch.title}\n\n（正文将在提交时由服务器读取）`)
       .join('\n\n---\n\n');
     setSourceText(combinedSource);
 
     try {
-      const firstChapterId: string = [...selectedChapterIds][0];
       const glossaryObj: Record<string, string> = {};
       for (const entry of glossary) {
         glossaryObj[entry.source] = entry.target;
       }
+      const glossaryParam: Record<string, string> | undefined =
+        Object.keys(glossaryObj).length > 0 ? glossaryObj : undefined;
 
-      const result: { translated_text: string } = await api<{ translated_text: string }>(
-        `/translate/chapter/${firstChapterId}`,
-        'POST',
-        {
-          platform: targetPlatform,
-          lang: PLATFORM_LANGS[targetPlatform] || 'en',
-          glossary: Object.keys(glossaryObj).length > 0 ? glossaryObj : undefined,
-          chapter_ids: [...selectedChapterIds],
-        },
-      );
-
-      setTranslatedText(result.translated_text || '翻译完成，结果为空');
+      // 此前这里只取第一章调用，且提交的字段名(platform/chapter_ids)后端
+      // 根本不认识——platform被Pydantic静默忽略后永远用默认webnovel(用户
+      // 选的平台不生效)，chapter_ids被忽略后选10章实际只翻1章。
+      // 现改为: 字段名对齐后端(target_platform)，逐章顺序调用并拼接结果。
+      const ids: string[] = [...selectedChapterIds];
+      const pieces: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        setTranslatedText(`正在翻译第 ${i + 1}/${ids.length} 章…\n\n${pieces.join('\n\n---\n\n')}`);
+        const result = await api<{ translated_text: string }>(
+          `/translate/chapter/${ids[i]}`,
+          'POST',
+          {
+            target_platform: targetPlatform,
+            glossary: glossaryParam,
+          },
+        );
+        pieces.push(result.translated_text || '(本章翻译结果为空)');
+      }
+      setTranslatedText(pieces.join('\n\n---\n\n') || '翻译完成，结果为空');
     } catch (err: unknown) {
       const msg: string =
         err instanceof Error ? err.message : '翻译失败，请稍后重试';
@@ -324,7 +325,7 @@ const TranslatePage: React.FC = () => {
             <p className="py-8 text-center text-[13px] text-gray-400">暂无章节</p>
           ) : (
             <div className="max-h-[500px] space-y-1 overflow-y-auto pr-1">
-              {chapters.map((ch: Chapter) => {
+              {chapters.map((ch: ChapterSummary) => {
                 const isSelected: boolean = selectedChapterIds.has(ch.id);
                 return (
                   <label

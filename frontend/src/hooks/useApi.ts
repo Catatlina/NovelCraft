@@ -12,6 +12,7 @@ import {
   projUpdateOutline,
   projUpdateWorld,
   projListChapters,
+  getChapter,
   genChapter,
   pipelineBatch,
   pipelineStatus,
@@ -56,6 +57,7 @@ import type {
   ProjectOutlineUpdate,
   ProjectWorldUpdate,
   Chapter,
+  ChapterSummary,
   GenerateChapterRequest,
   Foreshadow,
   ForeshadowStats,
@@ -101,27 +103,6 @@ export const queryKeys = {
 };
 
 // ============================================================
-// Mock 数据（后端不可用时使用）
-// ============================================================
-const MOCK_PROJECTS: Project[] = [
-  { id: 'demo-project-001', user_id: 'demo', title: '星辰之主', target_platform: '起点', target_words: 1000000, current_words: 85000, current_state: 'writing', state_history: [], outline: '少年林凡偶获星辰之力，从废柴逆袭为绝世强者。全书8卷。', world_setting: '修真世界，练气→筑基→金丹→元婴→化神→渡劫→飞升。', created_at: '2026-06-01T00:00:00Z', updated_at: '2026-07-06T00:00:00Z' },
-  { id: 'demo-project-002', user_id: 'demo', title: '都市医仙', target_platform: '番茄', target_words: 800000, current_words: 1200, current_state: 'outline', state_history: [], outline: '医学天才获得医仙传承', world_setting: '现代都市', created_at: '2026-07-01T00:00:00Z', updated_at: '2026-07-05T00:00:00Z' },
-  { id: 'demo-project-003', user_id: 'demo', title: '末日求生手册', target_platform: '晋江', target_words: 500000, current_words: 0, current_state: 'idea', state_history: [], outline: '病毒爆发后重建文明', world_setting: '近未来末日', created_at: '2026-07-04T00:00:00Z', updated_at: '2026-07-04T00:00:00Z' },
-];
-const MOCK_CHAPTERS: Chapter[] = [
-  { id: 'ch1', project_id: 'demo-project-001', chapter_num: 1, title: '第一章 星辰觉醒', content: '夜色如墨，林凡盘坐在后山破旧的木屋中。\n\n三年来，他无数次尝试引气入体，却始终无法突破那道无形的壁垒。宗门上下，早已将他视为笑柄——一个十六岁还未踏入练气期的废物。\n\n"再试一次。"他咬紧牙关，按照《星辰诀》的运功路线，将体内稀薄的灵力缓缓引导...\n\n突然，天际划过一道流星。\n\n那道光不偏不倚，直直坠入他的眉心！\n\n轰——！\n\n林凡只觉得脑海炸开，无数画面如潮水般涌入。那是一颗古星从诞生到毁灭的全过程，是亿万年宇宙演化的缩影。\n\n当他再次睁眼时，眼眸深处竟有星光流转。\n\n练气一层，成！', word_count: 2800, summary: '林凡苦修三年无果，偶得星辰之力觉醒，终于踏入练气期。', review_score: 83, status: 'reviewed', created_at: '2026-06-02T00:00:00Z', updated_at: '2026-06-02T00:00:00Z' },
-  { id: 'ch2', project_id: 'demo-project-001', chapter_num: 2, title: '第二章 宗门震动', content: '次日清晨，宗门长老议事厅。\n\n"你说什么？林凡突破练气期了？"大长老放下茶杯，眉头微皱。\n\n"不止如此。"传信弟子声音发颤，"他体内的灵力波动...至少是练气巅峰的水平。一夜之间连破九层！"\n\n满堂皆惊。\n\n...', word_count: 3100, summary: '林凡一夜连破九层震惊宗门。', review_score: null, status: 'draft', created_at: '2026-06-03T00:00:00Z', updated_at: '2026-06-03T00:00:00Z' },
-  { id: 'ch3', project_id: 'demo-project-001', chapter_num: 3, title: '第三章 远古传承', content: '林凡被带入藏经阁深处。\n\n"这枚玉佩，是初代掌门留下的信物。"大长老指着供台上的古玉，"掌门临终前说，能引动星辰之力者，便是天选之人。"\n\n林凡伸手触碰玉佩。\n\n嗡——！\n\n一道光柱冲天而起，玉佩中浮现出一段古老的文字。那是上古时代失传的《星辰九变》完整功法！\n\n...', word_count: 2600, summary: '林凡触发了初代掌门留下的远古传承。', review_score: null, status: 'draft', created_at: '2026-06-04T00:00:00Z', updated_at: '2026-06-04T00:00:00Z' },
-];
-const MOCK_FORESHADOWS: Foreshadow[] = [
-  { id: 'fs1', project_id: 'demo-project-001', content: '星辰之力隐藏着远古星神的意志', planted_chapter: 1, target_chapter: 8, resolved_chapter: null, status: 'planted', note: null, created_at: '', updated_at: '' },
-  { id: 'fs2', project_id: 'demo-project-001', content: '大长老隐瞒了星辰之力的真相', planted_chapter: 2, target_chapter: 6, resolved_chapter: null, status: 'planted', note: null, created_at: '', updated_at: '' },
-];
-const MOCK_FS_STATS: ForeshadowStats = { total: 2, planted: 2, paid_off: 0, overdue: 0, resolution_rate: 0 };
-const MOCK_PIPELINE = { status: 'idle' as const, project_id: '', tasks: [], total: 0, completed: 0, failed: 0 } as PipelineState;
-const MOCK_OPS: Record<string, unknown> = { total_words: 85200, active_projects: 2, avg_quality: 78, foreshadow_recovery: 0 };
-
-// ============================================================
 // Query Hooks (Read)
 // ============================================================
 
@@ -129,43 +110,48 @@ const MOCK_OPS: Record<string, unknown> = { total_words: 85200, active_projects:
 export function useProjects() {
   return useQuery<Project[]>({
     queryKey: queryKeys.projects,
-    queryFn: async () => {
-      try { return await projList(); }
-      catch { return MOCK_PROJECTS; }
-    },
-    placeholderData: MOCK_PROJECTS,
+    queryFn: projList,
     staleTime: 1000 * 60,
   });
 }
 
-/** 单个项目详情 — 后端不可用时自动回退 mock */
+/** 单个项目详情 */
 export function useProject(id: string | undefined) {
   return useQuery<Project>({
     queryKey: queryKeys.project(id || ''),
-    queryFn: () => projGet(id!).catch(() => MOCK_PROJECTS[0]),
-    initialData: MOCK_PROJECTS[0],
+    queryFn: () => projGet(id!),
     enabled: !!id,
     staleTime: 1000 * 30,
   });
 }
 
-/** 项目章节列表 — 后端不可用时自动回退 mock */
+/** 项目章节列表 */
 export function useChapters(projectId: string | undefined) {
-  return useQuery<Chapter[]>({
+  return useQuery<ChapterSummary[]>({
     queryKey: queryKeys.chapters(projectId || ''),
-    queryFn: () => projListChapters(projectId!).catch(() => MOCK_CHAPTERS),
-    initialData: MOCK_CHAPTERS,
+    queryFn: () => projListChapters(projectId!),
     enabled: !!projectId,
     staleTime: 1000 * 30,
   });
 }
 
-/** 伏笔列表 — 后端不可用时自动回退 mock */
+/** 单章完整详情（含正文），供编辑器按需加载当前正在查看的那一章。
+ *  P0-1 fix 的一部分：列表接口(useChapters)不再带正文，编辑器改用这个
+ *  hook 单独按 chapterId 拉取。*/
+export function useChapter(chapterId: string | undefined) {
+  return useQuery<Chapter>({
+    queryKey: ['chapter', chapterId],
+    queryFn: () => getChapter(chapterId!),
+    enabled: !!chapterId,
+    staleTime: 1000 * 10,
+  });
+}
+
+/** 伏笔列表 */
 export function useForeshadows(projectId: string | undefined, status?: ForeshadowStatus) {
   return useQuery<Foreshadow[]>({
     queryKey: [...queryKeys.foreshadows(projectId || ''), status],
-    queryFn: () => fsList(projectId!).catch(() => MOCK_FORESHADOWS),
-    initialData: MOCK_FORESHADOWS,
+    queryFn: () => fsList(projectId!),
     enabled: !!projectId,
     select: status
       ? (data: Foreshadow[]) => data.filter((f: Foreshadow) => f.status === status)
@@ -178,8 +164,7 @@ export function useForeshadows(projectId: string | undefined, status?: Foreshado
 export function useForeshadowStats(projectId: string | undefined) {
   return useQuery<ForeshadowStats>({
     queryKey: queryKeys.foreshadowStats(projectId || ''),
-    queryFn: () => fsStats(projectId!).catch(() => MOCK_FS_STATS),
-    initialData: MOCK_FS_STATS,
+    queryFn: () => fsStats(projectId!),
     enabled: !!projectId,
   });
 }
@@ -188,8 +173,7 @@ export function useForeshadowStats(projectId: string | undefined) {
 export function usePipelineStatus() {
   return useQuery<PipelineState>({
     queryKey: queryKeys.pipelineStatus,
-    queryFn: () => pipelineStatus().catch(() => MOCK_PIPELINE),
-    placeholderData: MOCK_PIPELINE,
+    queryFn: pipelineStatus,
     refetchInterval: 5000,
   });
 }
@@ -207,8 +191,8 @@ export function useKnowledgeSearch(projectId: string | undefined, query: string)
 export function useOpsDashboard() {
   return useQuery<Record<string, unknown>>({
     queryKey: queryKeys.opsDashboard,
-    queryFn: () => opsDashboard().catch(() => MOCK_OPS),
-    placeholderData: MOCK_OPS,
+    queryFn: () => opsDashboard().catch(() => ({} as Record<string, unknown>)),
+    placeholderData: {} as Record<string, unknown>,
     staleTime: 1000 * 60 * 5,
   });
 }
@@ -279,15 +263,15 @@ export function useQualityReview() {
 
 /** AI 改写 */
 export function useQualityRewrite() {
-  return useMutation<{ result: string }, Error, RewriteRequest>({
+  return useMutation<{ rewritten: string; applied: boolean; message?: string | null }, Error, RewriteRequest>({
     mutationFn: qualityRewrite,
   });
 }
 
 /** 爆款分析 */
-export function useHitAnalyze(projectId: string) {
+export function useHitAnalyze(_projectId: string) {
   return useMutation<HitAnalysisResult, Error, HitAnalysisRequest>({
-    mutationFn: (data: HitAnalysisRequest) => hitAnalyze(projectId, data),
+    mutationFn: (data: HitAnalysisRequest) => hitAnalyze(data),
   });
 }
 
@@ -303,37 +287,37 @@ export function useBatchGenerate() {
 }
 
 /** 平台扫描 */
-export function useScanRun(projectId: string) {
-  return useMutation<unknown, Error, void>({
-    mutationFn: () => scanRun(projectId),
+export function useScanRun() {
+  return useMutation<unknown, Error, string[] | undefined>({
+    mutationFn: (platforms?: string[]) => scanRun(platforms),
   });
 }
 
 /** 去口语化 */
-export function useDeslop(chapterId: string) {
-  return useMutation<unknown, Error, void>({
-    mutationFn: () => toolDeslop(chapterId),
+export function useDeslop() {
+  return useMutation<unknown, Error, { content: string; mode?: string }>({
+    mutationFn: ({ content, mode }) => toolDeslop(content, mode),
   });
 }
 
 /** 全书分析 */
-export function useAnalyzeBook(projectId: string) {
-  return useMutation<unknown, Error, void>({
-    mutationFn: () => toolAnalyzeBook(projectId),
+export function useAnalyzeBook() {
+  return useMutation<unknown, Error, { title: string; chapters: string; depth?: string }>({
+    mutationFn: ({ title, chapters, depth }) => toolAnalyzeBook(title, chapters, depth),
   });
 }
 
 /** 伏笔回收检查 */
 export function useCheckPayoff(foreshadowId: string) {
-  return useMutation<PayoffCheckResult, Error, void>({
-    mutationFn: () => fsCheckPayoff(foreshadowId),
+  return useMutation<PayoffCheckResult, Error, string>({
+    mutationFn: (chapterContent: string) => fsCheckPayoff(foreshadowId, chapterContent),
   });
 }
 
 /** 伏笔逾期检查 */
 export function useAutoCheckOverdue(projectId: string) {
   const qc = useQueryClient();
-  return useMutation<Foreshadow[], Error, void>({
+  return useMutation<{ checked: number; overdue: number }, Error, void>({
     mutationFn: () => fsCheckOverdue(projectId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.foreshadows(projectId) });
@@ -430,7 +414,7 @@ export function useExportProject(projectId: string) {
 
 /** 获取扫描平台列表 */
 export function useScanPlatforms() {
-  return useQuery<string[]>({
+  return useQuery<{ platforms: unknown[]; total: number }>({
     queryKey: ['scan', 'platforms'],
     queryFn: scanPlatforms,
     staleTime: Infinity,
@@ -444,11 +428,11 @@ export function useScanPlatforms() {
 /** 翻译章节 */
 export function useTranslateChapter(chapterId: string) {
   return useMutation<
-    { translated_text: string },
+    { translated_text: string; word_count?: number; cultural_notes?: string[] },
     Error,
-    { platform: string; glossary?: Record<string, string> }
+    { target_platform: string; glossary?: Record<string, string> }
   >({
-    mutationFn: (data) => translateChapter(chapterId, data.platform, data.glossary),
+    mutationFn: (data) => translateChapter(chapterId, data.target_platform, data.glossary),
   });
 }
 
@@ -564,7 +548,7 @@ export function useAddPlatformAccount() {
   return useMutation<
     { id: string },
     Error,
-    { platform: string; account_name: string; credentials?: Record<string, string> }
+    { platform: string; auth_method: 'oauth' | 'cookie'; account_name: string; credentials?: Record<string, string>; expires_at?: string }
   >({
     mutationFn: addPlatformAccount,
   });

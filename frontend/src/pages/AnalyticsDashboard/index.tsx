@@ -62,49 +62,11 @@ interface DashboardData {
   }>;
 }
 
-// ============================================================
-// Mock Data (fallback when API is unavailable)
-// ============================================================
-
-const MOCK_DATA: DashboardData = {
-  kpis: {
-    total_views: 128450,
-    total_chapters: 342,
-    avg_rating: 4.7,
-    total_projects: 8,
-    views_change_pct: 12.5,
-    chapters_change_pct: 8.3,
-    rating_change_pct: 2.1,
-    projects_change_pct: 0,
-  },
-  trend: [
-    { date: '06-01', views: 3200, chapters: 28 },
-    { date: '06-08', views: 4500, chapters: 32 },
-    { date: '06-15', views: 5100, chapters: 35 },
-    { date: '06-22', views: 6200, chapters: 30 },
-    { date: '06-29', views: 5800, chapters: 34 },
-    { date: '07-06', views: 7200, chapters: 38 },
-  ],
-  platform_comparison: [
-    { platform: 'Webnovel', readability: 88, engagement: 92, consistency: 85, marketability: 90 },
-    { platform: 'Amazon KDP', readability: 82, engagement: 78, consistency: 90, marketability: 85 },
-    { platform: 'Narou', readability: 75, engagement: 80, consistency: 82, marketability: 72 },
-    { platform: 'Munpia', readability: 80, engagement: 85, consistency: 78, marketability: 80 },
-    { platform: 'Dreame', readability: 78, engagement: 76, consistency: 80, marketability: 75 },
-    { platform: 'Royal Road', readability: 85, engagement: 88, consistency: 83, marketability: 82 },
-  ],
-};
-
-const TIME_RANGES: Array<{ value: string; label: string }> = [
-  { value: '7d', label: '近7天' },
-  { value: '30d', label: '近30天' },
-  { value: '90d', label: '近90天' },
-  { value: 'all', label: '全部' },
+const TIME_RANGES = [
+  { value: '7d', label: '7天' },
+  { value: '30d', label: '30天' },
+  { value: '90d', label: '90天' },
 ];
-
-// ============================================================
-// Component
-// ============================================================
 
 const AnalyticsDashboard: React.FC = () => {
   // ---- 状态 ----
@@ -131,8 +93,7 @@ const AnalyticsDashboard: React.FC = () => {
       );
       setDashboardData(data);
     } catch {
-      // 使用模拟数据作为降级
-      setDashboardData(MOCK_DATA);
+      setError('数据加载失败，请稍后重试');
     } finally {
       setLoading(false);
     }
@@ -144,7 +105,17 @@ const AnalyticsDashboard: React.FC = () => {
   }, [fetchDashboard]);
 
   // ---- 派生 ----
-  const data: DashboardData = dashboardData || MOCK_DATA;
+  const data: DashboardData | null = dashboardData;
+
+  if (!data && !loading) {
+    return (
+      <div className="flex h-full items-center justify-center text-gray-500">
+        {error || '暂无分析数据'}
+      </div>
+    );
+  }
+
+  if (!data) return <LoadingSpinner />;
 
   // ---- 渲染 ----
   return (

@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useMemo } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import LoadingSpinner from '@/components/shared/LoadingSpinner';
@@ -26,28 +26,23 @@ const PageLoading: React.FC = () => (
 );
 
 /**
- * 路由鉴权守卫：无 token 时重定向到登录页
- * 已登录用户访问 /login 时重定向到首页
+ * 路由鉴权守卫：通过 /auth/me 验证 httpOnly cookie 认证状态
  */
 const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
-  const token: string | null = useMemo(() => {
-    try {
-      const t = localStorage.getItem('novelcraft-token');
-      // 开发模式：没有 token 时自动生成一个，方便调试
-      if (!t && import.meta.env.DEV) {
-        const devToken = 'dev-token-' + Date.now();
-        localStorage.setItem('novelcraft-token', devToken);
-        return devToken;
-      }
-      return t;
-    } catch {
-      return null;
-    }
-  }, []);
+  const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
 
-  // 未登录且不在登录页 → 跳转登录 (生产模式才启用)
-  if (!token && location.pathname !== '/login' && !import.meta.env.DEV) {
+  useEffect(() => {
+    if (!isAuthenticated) {
+      checkAuth();
+    }
+  }, [isAuthenticated, checkAuth]);
+
+  if (isLoading) {
+    return <PageLoading />;
+  }
+
+  if (!isAuthenticated && location.pathname !== '/login') {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

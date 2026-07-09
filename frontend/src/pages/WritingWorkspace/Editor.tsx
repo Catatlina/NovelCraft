@@ -3,6 +3,7 @@ import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import AIToolbar from '@/components/shared/AIToolbar';
 import LoadingSpinner from '@/components/shared/LoadingSpinner';
 import { STATE_LABELS, fmtWords } from '@/utils/helpers';
+import { useGenerateChapter, useQualityReview, useQualityRewrite, useDeslop } from '@/hooks/useApi';
 import type { Project, Chapter } from '@/types';
 
 interface EditorProps {
@@ -25,6 +26,12 @@ const Editor: React.FC<EditorProps> = ({
   const [isReadOnly, setIsReadOnly] = useState<boolean>(true);
   const [editContent, setEditContent] = useState<string>('');
 
+  // API hooks
+  const genMutation = useGenerateChapter(project.id);
+  const reviewMutation = useQualityReview();
+  const rewriteMutation = useQualityRewrite();
+  const deslopMutation = useDeslop();
+
   // 同步编辑内容
   React.useEffect(() => {
     if (chapter) {
@@ -36,22 +43,36 @@ const Editor: React.FC<EditorProps> = ({
     setIsReadOnly((prev: boolean) => !prev);
   }, []);
 
-  // AI 工具栏回调
+  // AI 工具栏回调 — 连接实际 API
   const handleContinue = useCallback(() => {
-    // TODO: 调用续写 API
-  }, []);
+    if (!chapter) return;
+    genMutation.mutate({ mode: 'continue' });
+  }, [chapter, genMutation]);
 
   const handleRewrite = useCallback(() => {
-    // TODO: 调用改写 API
-  }, []);
+    if (!chapter) return;
+    rewriteMutation.mutate({
+      chapter_id: chapter.id,
+      dimension: 'rewrite',
+      target_segment: chapter.content || '',
+      issue_description: '整体优化表达',
+    });
+  }, [chapter, rewriteMutation]);
 
   const handleDeslop = useCallback(() => {
-    // TODO: 调用去口语化 API
-  }, []);
+    if (!chapter) return;
+    deslopMutation.mutate({ content: chapter.content || '' });
+  }, [chapter, deslopMutation]);
 
   const handleReview = useCallback(() => {
-    // TODO: 调用质量评审 API
-  }, []);
+    if (!chapter) return;
+    reviewMutation.mutate({
+      chapter_id: chapter.id,
+      chapter_content: chapter.content || '',
+      outline: '',
+      context: '',
+    });
+  }, [chapter, reviewMutation]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-white dark:bg-dark-surface">

@@ -26,7 +26,6 @@ const RewritePanel: React.FC<RewritePanelProps> = ({
   rewrittenText,
   dimension,
   chapterId,
-  projectId,
   isLoading,
   onRewrite,
 }) => {
@@ -47,13 +46,14 @@ const RewritePanel: React.FC<RewritePanelProps> = ({
   };
 
   const handleRewriteClick = (): void => {
-    if (!dimension || !chapterId || !projectId) return;
+    if (!dimension || !chapterId) return;
     onRewrite({
       chapter_id: chapterId,
-      project_id: projectId,
-      instruction: `重写以改善${dimension.label}维度`,
-      target_dimension: dimension.name,
-      scope: 'chapter',
+      dimension: dimension.name,
+      target_segment: originalText,
+      issue_description: dimension.issues.length > 0
+        ? dimension.issues.join('；')
+        : `重写以改善${dimension.label}维度`,
     });
   };
 

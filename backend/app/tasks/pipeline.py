@@ -13,17 +13,54 @@ from app.core.config import settings
 
 def _run_async(coro):
     """安全运行 async 协程，兼容 Celery 已运行 event loop 的场景。
-    
+
     Celery worker 可能已在 event loop 中运行，此时 asyncio.run() 会抛 RuntimeError。
     此函数检测当前 loop 状态：无 loop 时直接 asyncio.run()，有 loop 时在新线程中运行。
+
+    关键修复（本次验证 P0-2 时发现的系统性问题，影响本文件全部任务）：
+    AsyncEngine/asyncpg 的连接是绑定在创建它们的 event loop 上的。每次任务调用
+    都用 asyncio.run() 开一个全新的 loop，但 app.db.database 里的全局连接池是
+    进程级单例——如果连接池跨这些不同的 loop 复用旧连接，会在同一个 worker
+    进程处理完第一个任务后，从第二个任务开始必现
+    'attached to a different loop' 崩溃(已用最小复现脚本验证过这个现象100%可复现)。
+    每次任务执行完毕（无论成功还是异常）都主动 dispose 连接池，强制下一次任务
+    重新建立全新连接，避免跨 event loop 复用。
     """
+    async def _run_and_dispose():
+        from app.db.database import engine as _db_engine
+        try:
+            return await coro
+        finally:
+            await _db_engine.dispose()
+
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro)
+        return asyncio.run(_run_and_dispose())
     # 已有 running loop，在新线程中执行
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+        return pool.submit(asyncio.run, _run_and_dispose()).result()
+
+
+async def _bind_project_ai_context(db: AsyncSession, project) -> None:
+    """Bind per-user AI credentials/model for Celery tasks.
+
+    FastAPI requests get this through middleware, but Celery workers do not run
+    request middleware. Every background task that calls DeepSeek must bind the
+    project owner settings explicitly so user-level keys, model choice, cost
+    attribution, and multi-tenant isolation work outside HTTP requests.
+    """
+    from app.api.user_ai_settings import load_user_deepseek_settings
+    from app.services.deepseek_client import set_request_api_key, set_request_model
+
+    user_id = getattr(project, "user_id", None)
+    if not user_id:
+        set_request_api_key(None)
+        set_request_model(None)
+        return
+    key, model = await load_user_deepseek_settings(db, user_id)
+    set_request_api_key(key)
+    set_request_model(model)
 
 celery_app = Celery(
     "novelcraft",
@@ -37,13 +74,9 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
-    task_routes={
-        "app.tasks.pipeline.process_idea": {"queue": "idea"},
-        "app.tasks.pipeline.process_outline": {"queue": "outline"},
-        "app.tasks.pipeline.process_chapter": {"queue": "chapter"},
-        "app.tasks.pipeline.process_review": {"queue": "review"},
-        "app.tasks.pipeline.process_publish": {"queue": "publish"},
-    },
+    # 注意：task_routes 统一在文件末尾用真实注册任务名配置（此前这里有一份用
+    # "app.tasks.pipeline.process_idea" 这类不存在的任务名写的路由表，从未生效，
+    # 已删除以免误导 —— P0-1 修复的一部分）。
     task_acks_late=True,
     worker_prefetch_multiplier=1,
     task_track_started=True,
@@ -53,7 +86,18 @@ celery_app.conf.update(
 async def enqueue_batch_generation(
     db: AsyncSession, project_id: str, chapter_count: int = 10
 ) -> str:
-    """批量生成入口：入队 N 个章节生成任务"""
+    """批量生成入口：串行入队 N 个章节生成任务。
+
+    P0-2 fix: 此前用 for 循环把 N 个任务同时 send_task 到队列，Celery worker
+    并发消费时会导致章节乱序生成——章节 N+1 可能在章节 N 还没提交时就开始
+    组装上下文，读到不完整的前文；且 project.total_chapters 用 max() 更新，
+    乱序完成时会让章节号出现永久性空洞。
+    改为 celery chain()：同一批次的 N 个任务被串成一条链，前一个任务的
+    结果回调之后，才会派发下一个任务，从根本上保证严格按顺序执行。
+    章节号也不再预先计算，由每个任务运行时按 project.total_chapters+1
+    动态获取（顺序执行下这样做是安全的，且更简单）。
+    """
+    from celery import chain
     from app.db.models import GenerationTask, NovelProject
 
     batch_id = _uuid.uuid4().hex[:8]
@@ -63,6 +107,21 @@ async def enqueue_batch_generation(
 
     if project.status not in ("writing", "world"):
         raise ValueError(f"项目状态 {project.status} 不允许批量生成")
+
+    # P0-2(成本控制) fix: 同一项目同时只能有一个进行中的批次。
+    # 虽然单次生成内部的 TOCTOU 竞态已经用 FOR UPDATE + refresh 修复，
+    # 但"同一个项目同时跑两条独立的 chain"这种业务层面的并发此前没有
+    # 任何限制——两条链会交替争抢同一个 total_chapters 计数、互相打乱
+    # 对方的连续性，且让用户的 Token 消耗速度翻倍。
+    existing = await db.execute(
+        select(GenerationTask).where(
+            GenerationTask.project_id == project_id,
+            GenerationTask.type == "batch_chapter",
+            GenerationTask.status.in_(("queued", "running")),
+        ).limit(1)
+    )
+    if existing.scalar_one_or_none():
+        raise ValueError("该项目已有一个批量生成任务正在进行中，请等待完成或失败后再发起新批次")
 
     # Create batch task record
     task = GenerationTask(
@@ -74,10 +133,11 @@ async def enqueue_batch_generation(
     db.add(task)
     await db.commit()
 
-    # Enqueue individual chapters
-    start_num = project.total_chapters + 1
-    for i in range(chapter_count):
-        chapter_queue.delay(str(project_id), start_num + i, batch_id)
+    # 串行链：chapter_queue 不再需要预先分配的章节号，每次调用时动态取号
+    sig_chain = chain(*[
+        chapter_queue.si(str(project_id), batch_id) for _ in range(chapter_count)
+    ])
+    sig_chain.apply_async()
 
     return batch_id
 
@@ -112,6 +172,7 @@ def idea_pipeline_task(
             project = await db.get(NovelProject, project_id)
             if not project:
                 return {"error": "项目不存在"}
+            await _bind_project_ai_context(db, project)
 
             # Create generation task record
             task = GenerationTask(
@@ -258,6 +319,7 @@ def outline_pipeline_task(
             project = await db.get(NovelProject, project_id)
             if not project:
                 return {"error": "项目不存在"}
+            await _bind_project_ai_context(db, project)
 
             # Create generation task record
             task = GenerationTask(
@@ -459,6 +521,7 @@ def publish_pipeline_task(
             project = await db.get(NovelProject, project_id)
             if not project:
                 return {"error": "项目不存在"}
+            await _bind_project_ai_context(db, project)
 
             # Determine which chapters to publish
             if chapters:
@@ -608,72 +671,98 @@ def publish_pipeline_task(
 # ============================================================
 
 
-@celery_app.task(name="chapter_queue", bind=True, max_retries=2, default_retry_delay=60)
-def chapter_queue(self, project_id: str, chapter_num: int, batch_id: str):
-    """章节队列任务：生成单章"""
-    import asyncio
+async def _mark_batch_failed(project_id: str, batch_id: str, error_msg: str) -> None:
+    """用独立 session 把批次标记为失败并记录错误，供 chapter_queue 异常路径调用。"""
     from app.db.database import AsyncSessionLocal
     from app.db.models import GenerationTask
 
+    async with AsyncSessionLocal() as db:
+        bt = await db.execute(
+            select(GenerationTask).where(
+                GenerationTask.project_id == project_id,
+                GenerationTask.type == "batch_chapter",
+            ).order_by(GenerationTask.created_at.desc()).limit(1)
+        )
+        bt_row = bt.scalar_one_or_none()
+        if bt_row:
+            bt_row.status = "failed"
+            bt_row.error_log = error_msg[:2000]
+            await db.commit()
+
+
+async def _update_batch_progress(project_id: str, batch_id: str, chapter_num: int) -> None:
+    """用独立 session 更新批次进度，供 chapter_queue 成功路径调用。"""
+    from app.db.database import AsyncSessionLocal
+    from app.db.models import GenerationTask
+
+    async with AsyncSessionLocal() as db:
+        bt = await db.execute(
+            select(GenerationTask).where(
+                GenerationTask.project_id == project_id,
+                GenerationTask.type == "batch_chapter",
+            ).order_by(GenerationTask.created_at.desc()).limit(1)
+        )
+        bt_row = bt.scalar_one_or_none()
+        if bt_row:
+            p = bt_row.progress or {}
+            p["completed"] = p.get("completed", 0) + 1
+            p["current"] = chapter_num
+            bt_row.progress = p
+            if p["completed"] >= p.get("total", 0):
+                bt_row.status = "done"
+            await db.commit()
+
+
+@celery_app.task(name="chapter_queue", bind=True, max_retries=2, default_retry_delay=60)
+def chapter_queue(self, project_id: str, batch_id: str):
+    """章节队列任务：复用单章生成接口的核心逻辑(_generate_single_chapter)，
+    而不是自己重新实现一遍——此前两处逻辑各自维护，导致批量路径缺失伏笔回收
+    和超期自动标记（单章接口有，批量没有）。现在统一走一份实现，两条路径
+    行为自动保持一致。
+
+    P0-2 fix: 不再需要外部传入预先分配的章节号——章节号由
+    _generate_single_chapter 内部按 project.total_chapters+1 动态决定。
+    配合 enqueue_batch_generation 里改用 celery chain() 严格顺序执行，
+    每个任务开始时上一章必然已经完整提交，天然保证连续性、杜绝漏章。
+
+    错误处理：此前失败时 return {"error": ...}，Celery 会把这当作任务成功，
+    chain() 也就不会真正停下来，AI失败了还会继续生成下一章(读到的上下文缺了
+    上一章)。现在区分：AI服务暂时不可用(502)是瞬时性错误，用 self.retry()
+    真正重试；token预算超限(402)/项目状态不对(409)是终止性错误，直接标记
+    批次失败并 raise，chain 后续任务不会再被执行。
+    """
+    from fastapi import HTTPException
+    from app.db.database import AsyncSessionLocal
+    from app.db.models import NovelProject
+
     async def _run():
         async with AsyncSessionLocal() as db:
-            from app.db.models import NovelProject
             project = await db.get(NovelProject, project_id)
             if not project:
-                return {"error": "project not found"}
-            # 并发安全: FOR UPDATE 锁住行防止 token 竞态
-            from sqlalchemy import text
-            await db.execute(text("SELECT 1 FROM novel_projects WHERE id = :pid FOR UPDATE"), {"pid": project_id})
-            await db.refresh(project)
-            if project.token_budget and (project.token_used or 0) >= project.token_budget:
-                return {"error": "token budget exceeded"}
+                raise ValueError(f"项目 {project_id} 不存在，批次 {batch_id} 终止")
+            await _bind_project_ai_context(db, project)
 
-            # Generate at the pre-assigned chapter number
-            from app.services import context_hub, prompts
-            from app.services.deepseek_client import chat_completion, DeepSeekError
-            from app.db.models import ForeshadowPool, NovelChapter
+            from app.api.generation import _generate_single_chapter
 
-            context = await context_hub.assemble_context(db, project.id, chapter_num)
-            messages = prompts.build_novel_write_messages(context, mode="continue")
             try:
-                result = await chat_completion(messages)
-            except DeepSeekError as e:
-                return {"error": str(e)}
-            parsed = prompts.parse_novel_write_response(result["content"])
-
-            ch = NovelChapter(
-                project_id=project.id, chapter_num=chapter_num,
-                title=parsed["title"], content=parsed["content"],
-                word_count=len(parsed["content"]), summary=parsed["summary"],
-                status="draft",
-            )
-            db.add(ch)
-            for fs in parsed.get("new_foreshadows", []):
-                db.add(ForeshadowPool(project_id=project.id, description=fs.get("description",""),
-                    planted_chapter=chapter_num, expected_payoff_range=fs.get("expected_payoff_range"),
-                    status="planted"))
-            project.total_chapters = max(project.total_chapters, chapter_num)
-            project.total_words = (project.total_words or 0) + ch.word_count
-            project.token_used = (project.token_used or 0) + result.get("usage", {}).get("total_tokens", 0)
-
-            # Update batch progress
-            bt = await db.execute(
-                select(GenerationTask).where(
-                    GenerationTask.project_id == project_id,
-                    GenerationTask.type == "batch_chapter",
-                ).order_by(GenerationTask.created_at.desc()).limit(1)
-            )
-            bt_row = bt.scalar_one_or_none()
-            if bt_row:
-                p = bt_row.progress or {}
-                p["completed"] = p.get("completed", 0) + 1
-                p["current"] = chapter_num
-                bt_row.progress = p
-                if p["completed"] >= p.get("total", 0):
-                    bt_row.status = "done"
+                chapter = await _generate_single_chapter(db, project, mode="continue")
                 await db.commit()
+            except HTTPException as e:
+                await db.rollback()
+                if e.status_code in (402, 409):
+                    # 终止性错误：重试没有意义，标记批次失败，chain 不再继续
+                    await _mark_batch_failed(project_id, batch_id, str(e.detail))
+                    raise ValueError(str(e.detail)) from e
+                # 502等瞬时性错误：值得重试；重试耗尽后 self.retry 会重新抛出原异常，
+                # 由外层 _run_async 冒泡给 Celery，chain 同样会正确停止
+                await _mark_batch_failed(project_id, batch_id, str(e.detail))
+                raise self.retry(exc=e, countdown=60)
 
-            return {"chapter_num": chapter_num, "title": ch.title, "words": ch.word_count}
+            # P0-3 fix: 批量路径同样自动派发质量审查，与单章接口行为保持一致
+            celery_app.send_task("review_queue", args=[str(chapter.id)])
+
+            await _update_batch_progress(project_id, batch_id, chapter.chapter_num)
+            return {"chapter_num": chapter.chapter_num, "title": chapter.title, "words": chapter.word_count}
 
     return _run_async(_run())
 
@@ -685,7 +774,7 @@ def review_queue(self, chapter_id: str):
 
     async def _run():
         from app.db.database import AsyncSessionLocal
-        from app.db.models import NovelChapter
+        from app.db.models import NovelChapter, NovelProject
         from app.services import context_hub
         from app.api.quality import _do_7d_review
 
@@ -693,9 +782,10 @@ def review_queue(self, chapter_id: str):
             chapter = await db.get(NovelChapter, chapter_id)
             if not chapter:
                 return {"error": "chapter not found"}
-            project = await db.get(NovelChapter, chapter.project_id)
+            project = await db.get(NovelProject, chapter.project_id)
             if not project:
                 return {"error": "project not found"}
+            await _bind_project_ai_context(db, project)
 
             context = await context_hub.assemble_context(db, chapter.project_id, chapter.chapter_num)
             ctx_str = str(context.get("layer_6_recent_chapter_summaries", ""))[:1500]
@@ -707,10 +797,38 @@ def review_queue(self, chapter_id: str):
     return _run_async(_run())
 
 
+@celery_app.task(name="publish_execution_task", bind=True, max_retries=3, default_retry_delay=120)
+def publish_execution_task(
+    self,
+    execution_id: str,
+    platform: str,
+    chapter_ids: list[str],
+    headless: bool = True,
+    account_id: str | None = None,
+) -> dict:
+    """可靠发布执行任务。
+
+    替代 FastAPI BackgroundTasks：任务进入 Redis/Celery 队列，由 worker 消费；
+    API 容器重启不会造成任务直接丢失。发布执行内部仍会根据 execution.project_id
+    和 project.user_id 进行章节、平台账号二次校验。
+    """
+    async def _run() -> dict:
+        from app.api.publish_executions import _run_publish_execution
+
+        await _run_publish_execution(execution_id, platform, chapter_ids, headless, account_id)
+        return {"status": "done", "execution_id": execution_id}
+
+    try:
+        return _run_async(_run())
+    except Exception as exc:
+        raise self.retry(exc=exc)
+
+
 celery_app.conf.task_routes = {
     "idea_pipeline_task": {"queue": "idea"},
     "outline_pipeline_task": {"queue": "outline"},
     "chapter_queue": {"queue": "chapter"},
     "review_queue": {"queue": "review"},
     "publish_pipeline_task": {"queue": "publish"},
+    "publish_execution_task": {"queue": "publish"},
 }

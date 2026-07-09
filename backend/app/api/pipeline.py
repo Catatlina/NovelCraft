@@ -1,9 +1,10 @@
 """批量生成 + 调度监控 + 三级流水线 API (Phase 4)"""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ratelimit import ai_limiter
 from app.api.deps import get_current_user, get_user_project
 from app.db.database import get_db
 from app.db.models import GenerationTask, NovelProject, User
@@ -53,7 +54,8 @@ class PublishPipelineRequest(BaseModel):
 
 
 @router.post("/batch-generate")
-async def batch_generate(req: BatchGenerateRequest, db: AsyncSession = Depends(get_db),
+@ai_limiter.limit("3/minute")
+async def batch_generate(request: Request, response: Response, req: BatchGenerateRequest, db: AsyncSession = Depends(get_db),
                          user: User = Depends(get_current_user)):
     await get_user_project(req.project_id, user, db)
     try:

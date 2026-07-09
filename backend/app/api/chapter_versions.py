@@ -17,12 +17,32 @@ from app.api.deps import get_current_user, get_user_chapter, get_user_project
 from app.db.database import get_db
 from app.db.models import ChapterVersion, NovelChapter, User
 from app.schemas import (
+    ChapterOut,
     ChapterVersionCreate,
     ChapterVersionDiffOut,
     ChapterVersionOut,
 )
 
 router = APIRouter(prefix="/api/v1/chapters", tags=["chapter_versions"])
+
+
+# ---------------------------------------------------------------------------
+# 单章详情（P0-1 修复的一部分）
+# ---------------------------------------------------------------------------
+# 此前后端完全没有"查询单章详情(含正文)"这个接口——前端一直是靠章节
+# 列表接口(GET /projects/{id}/chapters)顺带把全部章节的正文都带出来，
+# 前端自己在内存里 find() 出当前要显示的那一章。这导致列表接口没法
+# 瘦身成只返回摘要+分页(否则编辑器就没内容可显示了)。
+# 现在补上这个接口，前端后续改造后可以：列表只拉摘要，点开某一章时
+# 才用这个接口按需拉正文。
+@router.get("/{chapter_id}", response_model=ChapterOut)
+async def get_chapter(
+    chapter_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """获取单章完整详情（含正文），用于编辑器按需加载。"""
+    return await get_user_chapter(chapter_id, user, db)
 
 
 # ---------------------------------------------------------------------------

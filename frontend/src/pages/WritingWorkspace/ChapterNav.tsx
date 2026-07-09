@@ -3,11 +3,11 @@ import { Plus } from 'lucide-react';
 import ChapterTree from '@/components/shared/ChapterTree';
 import LoadingSpinner from '@/components/shared/LoadingSpinner';
 import { fmtWords, STATE_LABELS } from '@/utils/helpers';
-import type { Project, Chapter } from '@/types';
+import type { Project, ChapterSummary } from '@/types';
 
 interface ChapterNavProps {
   project: Project;
-  chapters: Chapter[];
+  chapters: ChapterSummary[];
   chaptersLoading: boolean;
   activeChapter?: string;
   onSelect: (chapterId: string) => void;
@@ -27,7 +27,7 @@ const ChapterNav: React.FC<ChapterNavProps> = ({
   onGenerate,
 }) => {
   const totalWords: number = chapters.reduce(
-    (sum: number, ch: Chapter) => sum + (ch.word_count || 0),
+    (sum: number, ch: ChapterSummary) => sum + (ch.word_count || 0),
     0,
   );
 

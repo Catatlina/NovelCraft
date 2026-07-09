@@ -1,16 +1,16 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, FileText } from 'lucide-react';
-import type { Chapter } from '@/types';
+import type { ChapterSummary } from '@/types';
 
 interface ChapterTreeProps {
-  chapters: Chapter[];
+  chapters: ChapterSummary[];
   activeChapter?: string;
   onSelect: (chapterId: string) => void;
 }
 
 interface VolumeGroup {
   name: string;
-  chapters: Chapter[];
+  chapters: ChapterSummary[];
 }
 
 /**
@@ -28,7 +28,7 @@ const ChapterTree: React.FC<ChapterTreeProps> = ({
 
   // 按卷分组（无 volume 标记的自动归为"正文"）
   const volumes: VolumeGroup[] = React.useMemo(() => {
-    const map = new Map<string, Chapter[]>();
+    const map = new Map<string, ChapterSummary[]>();
     for (const ch of chapters) {
       const vol: string = ch.volume || '正文';
       if (!map.has(vol)) map.set(vol, []);
@@ -86,7 +86,7 @@ const ChapterTree: React.FC<ChapterTreeProps> = ({
             {/* 章节列表 */}
             {!isCollapsed && (
               <div className="ml-3 flex flex-col gap-0.5">
-                {vol.chapters.map((ch: Chapter) => {
+                {vol.chapters.map((ch: ChapterSummary) => {
                   const isActive: boolean = ch.id === activeChapter;
                   return (
                     <button

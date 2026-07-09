@@ -7,132 +7,8 @@ import AnalysisForm from './AnalysisForm';
 import MarketPrediction from './MarketPrediction';
 import GenreTrends from './GenreTrends';
 import TopicSuggestions from './TopicSuggestions';
-import { useQualityBenchmarks } from '@/hooks/useApi';
+import { useQualityBenchmarks, useHitAnalyze } from '@/hooks/useApi';
 import type { HitAnalysisRequest, HitBenchmark } from '@/types';
-
-/** 模拟爆款数据 */
-const MOCK_HITS: HitBenchmark[] = [
-  {
-    id: 'h1',
-    title: '星辰变',
-    author: '我吃西红柿',
-    platform: '起点中文网',
-    hot_score: 98,
-    read_count: 52000000,
-    tags: ['玄幻', '热血', '升级流'],
-    similarity: 0.85,
-    highlights: ['世界观宏大', '升级体系清晰'],
-  },
-  {
-    id: 'h2',
-    title: '大奉打更人',
-    author: '卖报小郎君',
-    platform: '起点中文网',
-    hot_score: 96,
-    read_count: 48000000,
-    tags: ['仙侠', '穿越', '搞笑'],
-    similarity: 0.78,
-    highlights: ['设定新颖', '笑点密集'],
-  },
-  {
-    id: 'h3',
-    title: '诡秘之主',
-    author: '爱潜水的乌贼',
-    platform: '起点中文网',
-    hot_score: 95,
-    read_count: 45000000,
-    tags: ['奇幻', '克苏鲁', '蒸汽朋克'],
-    similarity: 0.72,
-    highlights: ['设定独特', '悬念铺设出色'],
-  },
-  {
-    id: 'h4',
-    title: '我在精神病院学斩神',
-    author: '三九音域',
-    platform: '番茄小说',
-    hot_score: 93,
-    read_count: 41000000,
-    tags: ['都市', '异能', '热血'],
-    similarity: 0.80,
-    highlights: ['节奏快', '爽点密集'],
-  },
-  {
-    id: 'h5',
-    title: '遮天',
-    author: '辰东',
-    platform: '起点中文网',
-    hot_score: 91,
-    read_count: 38000000,
-    tags: ['仙侠', '热血', '争霸'],
-    similarity: 0.76,
-    highlights: ['场面宏大', '群像刻画'],
-  },
-  {
-    id: 'h6',
-    title: '斗破苍穹',
-    author: '天蚕土豆',
-    platform: '起点中文网',
-    hot_score: 90,
-    read_count: 55000000,
-    tags: ['玄幻', '废柴逆袭', '升级流'],
-    similarity: 0.88,
-    highlights: ['爽点节奏好', '金手指设定经典'],
-  },
-];
-
-/** 模拟类型趋势 */
-const MOCK_GENRE_TRENDS: { genre: string; score: number; change: number }[] = [
-  { genre: '玄幻', score: 92, change: 5.2 },
-  { genre: '都市', score: 85, change: -2.1 },
-  { genre: '言情', score: 78, change: 8.4 },
-  { genre: '仙侠', score: 88, change: 3.7 },
-  { genre: '科幻', score: 72, change: 12.5 },
-];
-
-/** 模拟选题建议 */
-const MOCK_SUGGESTIONS: {
-  title: string;
-  genre: string;
-  score: number;
-  tags: string[];
-  reason: string;
-}[] = [
-  {
-    title: '都市异能：我的系统是直播间',
-    genre: '都市',
-    score: 92,
-    tags: ['系统流', '直播', '搞笑'],
-    reason: '系统流+直播赛道持续火热，开篇Hook强，适合番茄平台快节奏',
-  },
-  {
-    title: '修仙：从被逐出师门开始',
-    genre: '仙侠',
-    score: 88,
-    tags: ['逆袭', '废柴流', '热血'],
-    reason: '废柴逆袭经典框架经久不衰，被逐出师门提供天然悬念起点',
-  },
-  {
-    title: '异界全职艺术家：我把地球文娱搬空',
-    genre: '玄幻',
-    score: 85,
-    tags: ['文娱', '穿越', '爽文'],
-    reason: '文娱穿越持续高热度，与地球文化结合提供无限素材库',
-  },
-];
-
-/** 模拟密度柱状图数据 */
-const MOCK_DENSITY: { chapter: string; count: number }[] = [
-  { chapter: 'Ch.1', count: 4 },
-  { chapter: 'Ch.2', count: 3 },
-  { chapter: 'Ch.3', count: 5 },
-  { chapter: 'Ch.4', count: 2 },
-  { chapter: 'Ch.5', count: 4 },
-  { chapter: 'Ch.6', count: 3 },
-  { chapter: 'Ch.7', count: 6 },
-  { chapter: 'Ch.8', count: 4 },
-  { chapter: 'Ch.9', count: 5 },
-  { chapter: 'Ch.10', count: 3 },
-];
 
 /**
  * 爆款分析中心主页面
@@ -142,6 +18,7 @@ const MOCK_DENSITY: { chapter: string; count: number }[] = [
 const TrendAnalysisPage: React.FC = () => {
   // 数据
   const { data: apiBenchmarks, isLoading: loadingBenchmarks } = useQualityBenchmarks();
+  const hitAnalyzeMutation = useHitAnalyze('');
 
   // 状态
   const [selectedHitId, setSelectedHitId] = useState<string | null>(null);
@@ -155,9 +32,8 @@ const TrendAnalysisPage: React.FC = () => {
   } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
 
-  // 使用 API 数据或模拟数据
   const benchmarks: HitBenchmark[] = useMemo(
-    () => (apiBenchmarks && apiBenchmarks.length > 0 ? apiBenchmarks : MOCK_HITS),
+    () => apiBenchmarks || [],
     [apiBenchmarks],
   );
 
@@ -167,30 +43,25 @@ const TrendAnalysisPage: React.FC = () => {
     [benchmarks, selectedHitId],
   );
 
-  // 处理分析请求
+  // 处理分析请求：调用真实后端，不再生成随机分数。
   const handleAnalyze = useCallback(
-    async (_data: HitAnalysisRequest) => {
+    async (data: HitAnalysisRequest) => {
       setIsAnalyzing(true);
-
-      // 模拟分析延迟
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      setPredictionData({
-        overallScore: Math.round(75 + Math.random() * 20),
-        titleFit: Math.round(70 + Math.random() * 25),
-        openingHook: Math.round(65 + Math.random() * 30),
-        marketFit: Math.round(72 + Math.random() * 20),
-        differentiation: Math.round(60 + Math.random() * 30),
-        suggestions: [
-          '标题建议增加「关键词前置」，如"都市异能"明确分类标签',
-          '开头前200字建议增加一个强冲突或悬念钩子',
-          '整体风格与当前热门题材「系统流」契合度高，可考虑增加系统元素',
-          '人物设定建议增加更鲜明的差异化标签，如"唯一"、"最强"等',
-        ],
-      });
-      setIsAnalyzing(false);
+      try {
+        const result = await hitAnalyzeMutation.mutateAsync(data);
+        setPredictionData({
+          overallScore: result.overall_hit_score,
+          titleFit: result.overall_hit_score,
+          openingHook: result.overall_hit_score,
+          marketFit: result.overall_hit_score,
+          differentiation: result.overall_hit_score,
+          suggestions: result.suggestions || [],
+        });
+      } finally {
+        setIsAnalyzing(false);
+      }
     },
-    [],
+    [hitAnalyzeMutation],
   );
 
   return (
@@ -212,6 +83,11 @@ const TrendAnalysisPage: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            {benchmarks.length === 0 && !loadingBenchmarks && (
+              <div className="card col-span-full py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                暂无真实榜单数据，请先运行扫榜或导入对标作品。
+              </div>
+            )}
             {benchmarks.slice(0, 6).map((hit: HitBenchmark, idx: number) => (
               <HitCard
                 key={hit.id}
@@ -288,7 +164,7 @@ const TrendAnalysisPage: React.FC = () => {
               </h4>
               <div className="h-[180px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={MOCK_DENSITY}>
+                  <BarChart data={[]}> 
                     <CartesianGrid
                       strokeDasharray="3 3"
                       stroke="#E2E8F0"
@@ -304,7 +180,7 @@ const TrendAnalysisPage: React.FC = () => {
                       tickLine={false}
                     />
                     <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={28}>
-                      {MOCK_DENSITY.map((_entry, index: number) => (
+                      {[].map((_entry, index: number) => (
                         <Cell
                           key={`cell-${index}`}
                           fill={index < 3 ? '#FF6B35' : '#6366F1'}
@@ -344,12 +220,12 @@ const TrendAnalysisPage: React.FC = () => {
       {/* 两列布局：市场预测 + 类型趋势 */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <MarketPrediction data={predictionData} isLoading={isAnalyzing} />
-        <GenreTrends data={MOCK_GENRE_TRENDS} isLoading={false} />
+        <GenreTrends data={[]} isLoading={false} />
       </div>
 
       {/* AI 选题建议 */}
       <TopicSuggestions
-        suggestions={predictionData ? MOCK_SUGGESTIONS : []}
+        suggestions={predictionData ? predictionData.suggestions.map((s, idx) => ({ title: `建议${idx + 1}`, genre: '综合', score: predictionData.overallScore, tags: [], reason: s })) : []}
         isLoading={isAnalyzing}
       />
     </div>

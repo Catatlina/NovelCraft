@@ -13,7 +13,7 @@ from app.services.prompts import (
     build_novel_scan_messages,
     parse_novel_scan_response,
 )
-from app.services.scanner import get_platform_list, scan_all, scan_all_mock
+from app.services.scanner import get_platform_list, scan_all
 
 router = APIRouter(prefix="/api/v1/scan", tags=["scan"])
 
@@ -40,17 +40,21 @@ async def run_scan(
     req: ScanRequest = ScanRequest(),
     user: User = Depends(get_current_user),
 ):
-    """执行扫榜 — 优先真实爬取，无结果时回退到 mock 数据"""
+    """执行扫榜 — 只返回真实爬取结果，失败时返回错误明细"""
     results = await scan_all(req.platforms)
 
     total_books = sum(len(r.books) for r in results)
     errors = [{"platform": r.platform, "error": r.error} for r in results if r.error]
 
-    # 如果真实爬取全部失败，回退到 mock 数据
+    # 如果真实爬取全部失败，返回错误信息
     if total_books == 0:
-        results = await scan_all_mock(req.platforms)
-        total_books = sum(len(r.books) for r in results)
-        errors = []
+        return {
+            "total_platforms": len(results),
+            "total_books": 0,
+            "error": "所有平台扫榜均失败，请检查网络连接或稍后重试",
+            "errors": errors,
+            "results": [],
+        }
 
     return {
         "total_platforms": len(results),
@@ -64,24 +68,6 @@ async def run_scan(
                 "books": r.books[:10],
                 "error": r.error,
             }
-            for r in results
-        ],
-    }
-
-
-@router.get("/mock")
-async def scan_mock(
-    platforms: str | None = None,
-    user: User = Depends(get_current_user),
-):
-    """获取模拟扫榜数据（演示模式，不爬取真实平台）"""
-    platform_list = platforms.split(",") if platforms else None
-    results = await scan_all_mock(platform_list)
-    return {
-        "total_platforms": len(results),
-        "total_books": sum(len(r.books) for r in results),
-        "results": [
-            {"platform": r.platform, "region": r.region, "count": len(r.books), "books": r.books[:10]}
             for r in results
         ],
     }

@@ -45,11 +45,16 @@ const ForeshadowBoardPage: React.FC = () => {
   const checkOverdueMutation = useAutoCheckOverdue(projectId || '');
 
   // 单条 AI 检查伏笔回收
+  // TODO(产品设计缺口): 后端 /check-payoff 要求传入实际回收该伏笔的章节正文才能做 AI 质量分析，
+  // 当前 UI 没有一个专门的输入框收集这段文本。这里用 window.prompt 做最小可用过渡，
+  // 后续应替换成一个真正的弹窗，让用户选择/粘贴对应章节内容。
   const handleCheckPayoff = useCallback(
     async (foreshadowId: string) => {
+      const chapterContent = window.prompt('请粘贴回收该伏笔的章节正文，用于 AI 质量分析：');
+      if (!chapterContent) return;
       setCheckingIds((prev) => new Set(prev).add(foreshadowId));
       try {
-        await fsCheckPayoff(foreshadowId);
+        await fsCheckPayoff(foreshadowId, chapterContent);
         toast.success('伏笔回收检查完成');
         if (projectId) {
           queryClient.invalidateQueries({ queryKey: queryKeys.foreshadows(projectId) });
@@ -69,11 +74,15 @@ const ForeshadowBoardPage: React.FC = () => {
   );
 
   // 标记回收
+  // TODO(产品设计缺口): 后端目前没有一个"仅标记为已回收、不做AI分析"的独立接口，
+  // 只能复用同一个 /check-payoff 接口，同样需要章节正文，见上方TODO。
   const handleMarkPayoff = useCallback(
     async (foreshadowId: string) => {
+      const chapterContent = window.prompt('请粘贴回收该伏笔的章节正文：');
+      if (!chapterContent) return;
       setCheckingIds((prev) => new Set(prev).add(foreshadowId));
       try {
-        await fsCheckPayoff(foreshadowId);
+        await fsCheckPayoff(foreshadowId, chapterContent);
         toast.success('已标记为回收');
         if (projectId) {
           queryClient.invalidateQueries({ queryKey: queryKeys.foreshadows(projectId) });

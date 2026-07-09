@@ -125,7 +125,6 @@ async def publish_chapter_to_platform(
             await asyncio.sleep(2)
 
             published_url = page.url
-            await browser.close()
 
             async with AsyncSessionLocal() as db:
                 rec = await db.execute(
@@ -143,5 +142,6 @@ async def publish_chapter_to_platform(
 
             return {"status": "published", "platform": platform, "url": published_url}
         except Exception as e:
-            await browser.close()
             return {"status": "failed", "reason": str(e)[:500]}
+        finally:
+            await browser.close()

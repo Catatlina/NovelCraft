@@ -1,27 +1,10 @@
 /**
- * HTTP 客户端 — 封装 fetch，统一处理 JWT、错误与 toasts
+ * HTTP 客户端 — 封装 fetch，统一处理认证、错误与 toasts
+ * 使用 httpOnly cookie 认证，不存储 JWT 到 localStorage
  */
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8100/api/v1';
 
-/** 获取 API 基地址 */
-const getApiBase = (): string => {
-  try {
-    const stored: string | null = localStorage.getItem('novelcraft-api-base');
-    return stored || 'http://localhost:8100/api/v1';
-  } catch {
-    return 'http://localhost:8100/api/v1';
-  }
-};
-
-/** 获取 JWT token */
-const getToken = (): string | null => {
-  try {
-    return localStorage.getItem('novelcraft-token');
-  } catch {
-    return null;
-  }
-};
-
-/** 简易 toast 通知（后续可替换为成熟方案） */
+/** 简易 toast 通知 */
 const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info'): void => {
   const event = new CustomEvent('novelcraft-toast', {
     detail: { message, type },
@@ -42,38 +25,57 @@ export class ApiError extends Error {
   }
 }
 
+
+function getCookie(name: string): string | null {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+// 避免并发场景下多个401同时触发多次刷新请求：所有请求共享同一个进行中的刷新Promise。
+let refreshInFlight: Promise<boolean> | null = null;
+
+/** 用 httpOnly cookie 里的 refresh_token 换取新的 access_token；成功返回 true。*/
+async function tryRefreshToken(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+      .then((res) => res.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
 /** 通用 HTTP 请求函数 */
 async function api<T>(
   path: string,
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET',
   body?: unknown,
-  options?: { headers?: Record<string, string>; timeout?: number },
+  options?: { headers?: Record<string, string>; timeout?: number; _isRetry?: boolean },
 ): Promise<T> {
-  const base: string = getApiBase();
-  const url: string = `${base}${path.startsWith('/') ? path : `/${path}`}`;
-  const token: string | null = getToken();
+  const url: string = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options?.headers || {}),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  // DeepSeek API Key 从服务端配置读取（不再从前端 localStorage）。
+  // Cookie 认证的写请求统一带 CSRF header。
+  if (method !== 'GET') {
+    const csrf = getCookie('csrf_token');
+    if (csrf) headers['X-CSRF-Token'] = csrf;
   }
-
-  // 发送 DeepSeek API Key + Model（前端配置，后端从 header 读取）
-  try {
-    const dsKey = localStorage.getItem('novelcraft-deepseek-key');
-    if (dsKey) headers['X-DeepSeek-API-Key'] = dsKey;
-    const dsModel = localStorage.getItem('novelcraft-deepseek-model');
-    if (dsModel) headers['X-DeepSeek-Model'] = dsModel;
-  } catch {}
 
   const controller = new AbortController();
   const timeoutId: ReturnType<typeof setTimeout> = setTimeout(
     () => controller.abort(),
-    options?.timeout || 30000,
+    options?.timeout || 60000,
   );
 
   try {
@@ -82,11 +84,11 @@ async function api<T>(
       headers,
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
+      credentials: 'include',  // httpOnly cookie 认证
     });
 
     clearTimeout(timeoutId);
 
-    // 204 No Content
     if (res.status === 204) {
       return undefined as T;
     }
@@ -101,8 +103,13 @@ async function api<T>(
         ? detail
         : `请求失败 (${res.status})`;
 
-      if (res.status === 401) {
-        localStorage.removeItem('novelcraft-token');
+      // access_token 过期(401)时，尝试用 httpOnly 的 refresh_token cookie 静默换新，
+      // 成功后原样重放一次原请求；避免对 /auth/* 自身的请求做刷新重试造成死循环。
+      if (res.status === 401 && !options?._isRetry && !path.startsWith('/auth/')) {
+        const refreshed = await tryRefreshToken();
+        if (refreshed) {
+          return api<T>(path, method, body, { ...options, _isRetry: true });
+        }
       }
 
       throw new ApiError(res.status, msg, detail);
@@ -129,4 +136,4 @@ async function api<T>(
   }
 }
 
-export { api, getApiBase, getToken, showToast };
+export { api, showToast };

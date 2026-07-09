@@ -165,12 +165,17 @@ async def _scrape_platform(name: str, config: dict, timeout: int = 15) -> ScanRe
 
 
 async def scan_all(platforms: list[str] | None = None) -> list[ScanResult]:
-    """并发扫榜所有平台"""
+    """并发扫榜所有平台（限制并发数防止触发目标站点限流）"""
     sources = PLATFORM_SOURCES
     if platforms:
         sources = {k: v for k, v in PLATFORM_SOURCES.items() if k in platforms}
 
-    tasks = [_scrape_platform(name, config) for name, config in sources.items()]
+    sem = asyncio.Semaphore(3)  # P1-4: 限制 3 并发
+    async def _scrape_with_limit(name, config):
+        async with sem:
+            return await _scrape_platform(name, config)
+
+    tasks = [_scrape_with_limit(name, config) for name, config in sources.items()]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     output = []
@@ -188,36 +193,3 @@ def get_platform_list() -> list[dict]:
         {"name": name, "region": cfg["region"], "url": cfg["url"]}
         for name, cfg in PLATFORM_SOURCES.items()
     ]
-
-
-# ═══ Mock 扫榜数据（演示用 / 爬虫失败时降级） ═══
-MOCK_SCAN_BOOKS: list[dict] = [
-    {"title": "星辰之主", "author": "逆苍天", "platform": "起点月票榜", "rank": 1, "hot_score": 98, "tags": ["玄幻", "热血", "逆袭"], "word_count": 2800000, "summary": "少年偶获星辰之力，从废物逆袭为诸天至尊。"},
-    {"title": "大奉打更人", "author": "卖报小郎君", "platform": "起点畅销榜", "rank": 1, "hot_score": 96, "tags": ["仙侠", "侦探", "搞笑"], "word_count": 3500000, "summary": "警校毕业穿越古代，成为打更人，破案修仙两不误。"},
-    {"title": "夜的命名术", "author": "会说话的肘子", "platform": "起点月票榜", "rank": 2, "hot_score": 94, "tags": ["科幻", "赛博朋克", "都市"], "word_count": 2200000, "summary": "赛博世界里，少年用代码改变命运。"},
-    {"title": "我在修仙界搞房产", "author": "番茄第一深情", "platform": "番茄热门", "rank": 1, "hot_score": 92, "tags": ["修仙", "轻松", "经营"], "word_count": 1800000, "summary": "穿越修仙界搞房地产开发，成了修真界的许家印。"},
-    {"title": "重生之都市仙尊", "author": "老鹰吃小鸡", "platform": "番茄热门", "rank": 2, "hot_score": 90, "tags": ["都市", "重生", "修仙"], "word_count": 4200000, "summary": "仙界至尊重生到地球高中生身上，扮猪吃老虎。"},
-    {"title": "她的名字叫红豆", "author": "晋江文学城作者", "platform": "晋江积分榜", "rank": 1, "hot_score": 88, "tags": ["言情", "现言", "虐恋"], "word_count": 800000, "summary": "一场误会，两次错过。他说红豆最相思。"},
-    {"title": "诸天投影", "author": "裴屠狗", "platform": "纵横热榜", "rank": 1, "hot_score": 85, "tags": ["无限流", "诸天"], "word_count": 1800000, "summary": "我是诸天的投影，万界的倒影。"},
-    {"title": "道诡异仙", "author": "狐尾的笔", "platform": "起点月票榜", "rank": 3, "hot_score": 93, "tags": ["克苏鲁", "玄幻", "诡异"], "word_count": 2000000, "summary": "诡异修仙世界，清醒是一种病。"},
-    {"title": "我的冰山美女老婆", "author": "青衫仗剑", "platform": "17K热榜", "rank": 1, "hot_score": 82, "tags": ["都市", "兵王", "爽文"], "word_count": 5600000, "summary": "兵王回归都市，发现多了个冰山总裁未婚妻。"},
-    {"title": "大王饶命", "author": "会说话的肘子", "platform": "书旗热榜", "rank": 1, "hot_score": 80, "tags": ["灵气复苏", "搞笑"], "word_count": 1600000, "summary": "灵气复苏时代，靠怼人升级的主角。"},
-    {"title": "轮回乐园", "author": "那一只蚊子", "platform": "飞卢热榜", "rank": 1, "hot_score": 78, "tags": ["无限流", "末世", "战斗"], "word_count": 3500000, "summary": "在轮回乐园中，只有强者才能活下去。"},
-    {"title": "我加载了恋爱游戏", "author": "掠过的乌鸦", "platform": "刺猬猫热榜", "rank": 1, "hot_score": 75, "tags": ["恋爱", "日常", "轻小说"], "word_count": 900000, "summary": "普通高中生获得了攻略美少女就能变强的系统。"},
-    {"title": "Shadow Slave", "author": "Guiltythree", "platform": "Webnovel Trending", "rank": 1, "hot_score": 95, "tags": ["dark fantasy", "litrpg"], "word_count": 2500000, "summary": "A cursed boy navigates a nightmare world ruled by gods and monsters."},
-    {"title": "Mother of Learning", "author": "nobody103", "platform": "Royal Road Best", "rank": 1, "hot_score": 97, "tags": ["time loop", "magic", "progression"], "word_count": 800000, "summary": "A mage trapped in a month-long time loop must uncover the truth."},
-    {"title": "The Mech Touch", "author": "Exlor", "platform": "Webnovel Trending", "rank": 2, "hot_score": 89, "tags": ["mecha", "scifi", "crafting"], "word_count": 5500000, "summary": "A mech designer rises to power through innovation and determination."},
-]
-
-
-async def scan_all_mock(platforms: list[str] | None = None) -> list[ScanResult]:
-    """返回模拟扫榜数据（演示模式 / 爬虫失败降级）"""
-    results = []
-    for name, cfg in PLATFORM_SOURCES.items():
-        if platforms and name not in platforms:
-            continue
-        matching = [b for b in MOCK_SCAN_BOOKS if b["platform"] == name]
-        if not matching:
-            matching = MOCK_SCAN_BOOKS[:5]
-        results.append(ScanResult(platform=name, region=cfg["region"], books=matching))
-    return results

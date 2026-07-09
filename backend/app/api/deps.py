@@ -2,39 +2,46 @@
 import uuid
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Cookie, Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import decode_token
+from app.core.security import decode_token_with_type
 from app.db.database import get_db
 from app.db.models import NovelChapter, NovelProject, User
 
 
-async def get_deepseek_api_key(
-    x_deepseek_api_key: Optional[str] = Header(None, alias="X-DeepSeek-API-Key"),
-) -> str | None:
-    """从前端请求头提取 DeepSeek API Key"""
-    return x_deepseek_api_key
-
-
 async def get_current_user(
-    authorization: str = Header(...), db: AsyncSession = Depends(get_db)
+    request: Request,
+    authorization: str | None = Header(None),
+    access_token: str | None = Cookie(None),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Invalid authorization header")
-    token = authorization[7:]
-    user_id_str = decode_token(token)
+    """从 Authorization header 或 httpOnly Cookie 中提取 JWT 并验证用户。
+
+    优先级：Authorization header > access_token cookie
+    """
+    token: str | None = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    elif access_token:
+        token = access_token
+
+    if not token:
+        raise HTTPException(401, "未提供认证 token")
+
+    # 只接受 access token。refresh token 只能用于 /auth/refresh，不能直接访问业务 API。
+    user_id_str = decode_token_with_type(token, "access")
     if not user_id_str:
-        raise HTTPException(401, "Invalid or expired token")
+        raise HTTPException(401, "access token 无效、类型错误或已过期")
     try:
         user_id = uuid.UUID(user_id_str)
     except ValueError:
-        raise HTTPException(401, "Invalid token payload")
+        raise HTTPException(401, "token 格式无效")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
-        raise HTTPException(401, "User not found")
+        raise HTTPException(401, "用户不存在或已禁用")
     return user
 
 
@@ -51,9 +58,8 @@ async def get_user_project(project_id: str, user: User, db: AsyncSession) -> Nov
 
 async def get_user_chapter(chapter_id: str, user: User, db: AsyncSession) -> NovelChapter:
     """校验用户拥有该章节所属项目，否则抛 404"""
-    from uuid import UUID
     try:
-        cid = UUID(chapter_id)
+        cid = uuid.UUID(chapter_id)
     except (ValueError, AttributeError):
         raise HTTPException(404, "章节不存在")
     result = await db.execute(

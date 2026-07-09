@@ -1,12 +1,12 @@
 import React from 'react';
 import { ChevronRight, ExternalLink } from 'lucide-react';
-import type { Chapter } from '@/types';
+import type { ChapterSummary } from '@/types';
 import { fmtWords } from '@/utils/helpers';
 
 interface ChapterQualityRow {
-  chapter: Chapter;
-  scores: Record<string, number>;
-  overallScore: number;
+  chapter: ChapterSummary;
+  scores: Record<string, number> | null;
+  overallScore: number | null;
 }
 
 interface ChapterQualityTableProps {
@@ -134,59 +134,59 @@ const ChapterQualityTable: React.FC<ChapterQualityTableProps> = ({
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`text-[13px] font-mono font-semibold ${scoreColor(row.scores.readability ?? 0)}`}
+                      className={`text-[13px] font-mono font-semibold ${row.scores ? scoreColor(row.scores.readability ?? 0) : 'text-gray-300 dark:text-gray-600'}`}
                     >
-                      {row.scores.readability ?? '-'}
+                      {row.scores?.readability ?? '—'}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`text-[13px] font-mono font-semibold ${scoreColor(row.scores.pacing ?? 0)}`}
+                      className={`text-[13px] font-mono font-semibold ${row.scores ? scoreColor(row.scores.pacing ?? 0) : 'text-gray-300 dark:text-gray-600'}`}
                     >
-                      {row.scores.pacing ?? '-'}
+                      {row.scores?.pacing ?? '—'}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`text-[13px] font-mono font-semibold ${scoreColor(row.scores.logic ?? 0)}`}
+                      className={`text-[13px] font-mono font-semibold ${row.scores ? scoreColor(row.scores.logic ?? 0) : 'text-gray-300 dark:text-gray-600'}`}
                     >
-                      {row.scores.logic ?? '-'}
+                      {row.scores?.logic ?? '—'}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`text-[13px] font-mono font-semibold ${scoreColor(row.scores.character ?? 0)}`}
+                      className={`text-[13px] font-mono font-semibold ${row.scores ? scoreColor(row.scores.character ?? 0) : 'text-gray-300 dark:text-gray-600'}`}
                     >
-                      {row.scores.character ?? '-'}
+                      {row.scores?.character ?? '—'}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`text-[13px] font-mono font-semibold ${scoreColor(row.scores.emotion ?? 0)}`}
+                      className={`text-[13px] font-mono font-semibold ${row.scores ? scoreColor(row.scores.emotion ?? 0) : 'text-gray-300 dark:text-gray-600'}`}
                     >
-                      {row.scores.emotion ?? '-'}
+                      {row.scores?.emotion ?? '—'}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`text-[13px] font-mono font-semibold ${scoreColor(row.scores.style ?? 0)}`}
+                      className={`text-[13px] font-mono font-semibold ${row.scores ? scoreColor(row.scores.style ?? 0) : 'text-gray-300 dark:text-gray-600'}`}
                     >
-                      {row.scores.style ?? '-'}
+                      {row.scores?.style ?? '—'}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`text-[13px] font-mono font-semibold ${scoreColor(row.scores.foreshadow ?? 0)}`}
+                      className={`text-[13px] font-mono font-semibold ${row.scores ? scoreColor(row.scores.foreshadow ?? 0) : 'text-gray-300 dark:text-gray-600'}`}
                     >
-                      {row.scores.foreshadow ?? '-'}
+                      {row.scores?.foreshadow ?? '—'}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`text-[14px] font-bold font-mono ${scoreColor(row.overallScore)}`}
+                        className={`text-[14px] font-bold font-mono ${row.overallScore != null ? scoreColor(row.overallScore) : 'text-gray-300 dark:text-gray-600'}`}
                       >
-                        {row.overallScore}
+                        {row.overallScore ?? '未审查'}
                       </span>
                       {onSelectChapter && (
                         <ExternalLink size={12} className="text-gray-300 dark:text-gray-600" />

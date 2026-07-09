@@ -75,7 +75,7 @@ const LoginPage: React.FC = () => {
       setValidationError('请输入密码');
       return false;
     }
-    if (password.length < 6) {
+    if (password.length < 8) {
       setValidationError('密码长度至少 6 位');
       return false;
     }

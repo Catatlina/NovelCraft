@@ -17,7 +17,7 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useProjectStore } from '@/store/projectStore';
-import { getApiBase } from '@/api/client';
+import { API_BASE, api } from '@/api/client';
 
 /**
  * 设置页面
@@ -33,65 +33,52 @@ import { getApiBase } from '@/api/client';
  */
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, token, isAuthenticated, logout, error } = useAuthStore();
+  const { user, isAuthenticated, logout, error } = useAuthStore();
   const { isDark, toggle: toggleDark } = useThemeStore();
   const projectId: string | null = useProjectStore((s) => s.selectedProjectId);
 
-  // 本地表单状态
-  const [apiBase, setApiBase] = useState<string>(() => {
-    try {
-      return localStorage.getItem('novelcraft-api-base') || 'http://localhost:8100/api/v1';
-    } catch {
-      return 'http://localhost:8100/api/v1';
-    }
-  });
-  const [showToken, setShowToken] = useState<boolean>(false);
+  const [apiBase, setApiBase] = useState<string>(API_BASE);
   const [showKey, setShowKey] = useState<boolean>(false);
+  const [deepseekKey, setDeepseekKey] = useState<string>('');
+  const [deepseekModel, setDeepseekModel] = useState<string>('deepseek-chat');
+  const [hasDeepseekKey, setHasDeepseekKey] = useState<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [maskedToken, setMaskedToken] = useState<string>('');
 
-  // 初始化时计算 token 遮罩
   useEffect(() => {
-    if (token && token.length > 0) {
-      if (token.length <= 8) {
-        setMaskedToken('••••••••');
-      } else {
-        setMaskedToken(token.slice(0, 4) + '••••••' + token.slice(-4));
-      }
-    }
-  }, [token]);
+    api<{ has_deepseek_api_key: boolean; deepseek_model: string }>('/ai-settings')
+      .then((res) => {
+        setHasDeepseekKey(res.has_deepseek_api_key);
+        setDeepseekModel(res.deepseek_model || 'deepseek-chat');
+      })
+      .catch(() => undefined);
+  }, []);
 
-  // 保存 API 配置
-  const handleSaveApi = useCallback(() => {
+  const handleSaveApi = useCallback(async () => {
     setSaveStatus('saving');
     try {
-      const trimmed: string = apiBase.trim();
-      if (!trimmed) {
-        setSaveStatus('error');
-        return;
-      }
-      localStorage.setItem('novelcraft-api-base', trimmed);
+      const res = await api<{ has_deepseek_api_key: boolean; deepseek_model: string }>(
+        '/ai-settings',
+        'PUT',
+        {
+          deepseek_api_key: deepseekKey || undefined,
+          deepseek_model: deepseekModel || 'deepseek-chat',
+        },
+      );
+      setHasDeepseekKey(res.has_deepseek_api_key);
+      setDeepseekModel(res.deepseek_model);
+      setDeepseekKey('');
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
     } catch {
       setSaveStatus('error');
     }
-  }, [apiBase]);
+  }, [deepseekKey, deepseekModel]);
 
   // 登出
   const handleLogout = useCallback(async () => {
     await logout();
     navigate('/login');
   }, [logout, navigate]);
-
-  // 复制 token
-  const handleCopyToken = useCallback(() => {
-    if (token) {
-      navigator.clipboard.writeText(token).catch(() => {
-        // 降级：静默失败
-      });
-    }
-  }, [token]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -120,11 +107,9 @@ const SettingsPage: React.FC = () => {
               <input
                 className="input flex-1"
                 type={showKey ? 'text' : 'password'}
-                defaultValue={(() => { try { return localStorage.getItem('novelcraft-deepseek-key') || ''; } catch { return ''; } })()}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                  try { localStorage.setItem('novelcraft-deepseek-key', e.target.value); } catch {}
-                }}
-                placeholder="sk-your-deepseek-api-key"
+                value={deepseekKey}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDeepseekKey(e.target.value)}
+                placeholder={hasDeepseekKey ? '已配置；留空则不覆盖现有 Key' : 'sk-your-deepseek-api-key'}
               />
               <button
                 className="btn-ghost h-9 w-9 p-0"
@@ -135,7 +120,7 @@ const SettingsPage: React.FC = () => {
               </button>
             </div>
             <p className="mt-1 text-[12px] text-gray-400 dark:text-gray-500">
-              从 <a href="https://platform.deepseek.com/api_keys" target="_blank" className="underline">platform.deepseek.com</a> 获取
+              从 <a href="https://platform.deepseek.com/api_keys" target="_blank" className="underline">platform.deepseek.com</a> 获取；保存后密钥仅在服务端加密存储，不会回显。
             </p>
           </div>
 
@@ -146,10 +131,8 @@ const SettingsPage: React.FC = () => {
             </label>
             <input
               className="input w-full"
-              defaultValue={(() => { try { return localStorage.getItem('novelcraft-deepseek-model') || 'deepseek-chat'; } catch { return 'deepseek-chat'; } })()}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                try { localStorage.setItem('novelcraft-deepseek-model', e.target.value); } catch {}
-              }}
+              value={deepseekModel}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDeepseekModel(e.target.value)}
               placeholder="deepseek-chat"
             />
             <p className="mt-1 text-[12px] text-gray-400 dark:text-gray-500">
@@ -182,7 +165,9 @@ const SettingsPage: React.FC = () => {
                     ? '保存中…'
                     : saveStatus === 'saved'
                       ? '已保存'
-                      : '保存'}
+                      : saveStatus === 'error'
+                        ? '保存失败'
+                        : '保存'}
                 </span>
               </button>
             </div>
@@ -199,7 +184,7 @@ const SettingsPage: React.FC = () => {
                 当前 API 地址：
               </span>
               <code className="rounded bg-gray-200 px-2 py-0.5 text-[12px] text-gray-700 dark:bg-gray-700 dark:text-gray-300">
-                {getApiBase()}
+                {API_BASE}
               </code>
             </div>
           </div>
@@ -214,57 +199,15 @@ const SettingsPage: React.FC = () => {
             Token 管理
           </h2>
         </div>
-
-        {isAuthenticated && token ? (
-          <div className="space-y-3">
-            {/* Token 显示 */}
-            <div>
-              <label className="mb-1 block text-[13px] font-semibold text-gray-500 dark:text-gray-400">
-                当前 Token
-              </label>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-[13px] text-gray-700 dark:border-gray-600 dark:bg-dark-surface dark:text-gray-300 break-all">
-                  {showToken ? token : maskedToken}
-                </code>
-                <button
-                  className="btn-ghost h-9 w-9 p-0"
-                  onClick={() => setShowToken((prev: boolean) => !prev)}
-                  title={showToken ? '隐藏 Token' : '显示 Token'}
-                >
-                  {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-                <button
-                  className="btn-ghost h-9 px-3 text-[13px]"
-                  onClick={handleCopyToken}
-                  title="复制 Token 到剪贴板"
-                >
-                  复制
-                </button>
-              </div>
-              <p className="mt-1 text-[12px] text-gray-400 dark:text-gray-500">
-                Token 保存在浏览器本地存储中，请勿泄露给他人
-              </p>
-            </div>
-
-            {/* Token 状态 */}
-            <div className="flex items-center gap-2">
-              <span className="badge badge-success">
-                <Shield size={12} />
-                有效
-              </span>
-              <span className="text-[12px] text-gray-400 dark:text-gray-500">
-                JWT Bearer Token
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
-            <Shield size={36} className="text-gray-300 dark:text-gray-600" />
-            <p className="text-[13px] text-gray-400 dark:text-gray-500">
-              未登录，暂无 Token
-            </p>
-          </div>
-        )}
+        <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
+          <Shield size={36} className="text-gray-300 dark:text-gray-600" />
+          <p className="text-[13px] text-gray-600 dark:text-gray-300">
+            认证 Token 通过 httpOnly Cookie 自动管理
+          </p>
+          <p className="text-[12px] text-gray-400 dark:text-gray-500">
+            Access Token 15分钟自动刷新，无需手动操作
+          </p>
+        </div>
       </section>
 
       {/* ===== 账户信息 ===== */}

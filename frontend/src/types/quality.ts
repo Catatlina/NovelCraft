@@ -33,15 +33,15 @@ export interface QualityReview {
 /** 质量评审请求 */
 export interface ReviewRequest {
   chapter_id: string;
-  project_id: string;
-  scope?: QualityDimension[];
+  chapter_content: string;
+  outline?: string;
+  context?: string;
 }
 
 /** AI 改写请求 */
 export interface RewriteRequest {
   chapter_id: string;
-  project_id: string;
-  instruction: string;
-  scope?: 'sentence' | 'paragraph' | 'chapter';
-  target_dimension?: QualityDimension;
+  dimension: string;
+  target_segment: string;
+  issue_description: string;
 }

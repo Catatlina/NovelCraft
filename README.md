@@ -20,6 +20,7 @@ AI 驱动的全流程小说写作平台 — 从扫榜选题、百万字长篇生
 - [第六步：启动前端](#第六步启动前端)
 - [第七步：打开使用](#第七步打开使用)
 - [常见问题排查](#常见问题排查)
+- [版本升级：数据库结构如何更新](#版本升级数据库结构如何更新)
 - [功能概览](#功能概览)
 - [技术架构](#技术架构)
 - [项目结构](#项目结构)
@@ -350,9 +351,43 @@ docker compose down -v
 docker compose up -d
 ```
 
+> 💡 如果你是**升级了代码之后**才开始报"表不存在"之类的错误，不要直接重置数据库（会丢数据）。先看 [版本升级：数据库结构如何更新](#版本升级数据库结构如何更新)，通常手动重跑一遍 `schema_v8.sql` 就能解决，不需要清空数据。
+
 ---
 
-## 功能概览
+## 版本升级：数据库结构如何更新
+
+> ⚠️ 这一节只对**已经部署过旧版本、现在要升级到新版本**的用户重要。全新部署（第一次 `docker compose up -d`）可以跳过。
+
+### 为什么需要手动这一步
+
+`backend/schema_v8.sql` 里的建表语句都用了 `CREATE TABLE IF NOT EXISTS`，本身是"重复执行也安全"的。但 Docker 只会在数据库**第一次初始化、数据卷完全为空时**自动执行这个脚本。如果你的容器已经跑过一段时间、`pgdata` 数据卷里已经有数据，升级代码后新增的表（比如 `platform_accounts`、`ab_tests`、`world_setting_embeddings` 等）**不会自动创建**，对应功能（平台账号绑定、A/B 测试、pgvector 语义检索等）会在你使用时报"表不存在"的错误。
+
+### 升级步骤
+
+1. 先备份数据库（强烈建议，即使 `schema_v8.sql` 本身是安全的，操作数据库前养成备份习惯更保险）：
+```bash
+docker exec novelcraft-db pg_dump -U novelcraft novelcraft > backup_$(date +%Y%m%d).sql
+```
+
+2. 拉取最新代码后，手动把 `schema_v8.sql` 里的建表语句重新跑一遍（`IF NOT EXISTS` 保证不会影响你已有的数据和表）：
+```bash
+docker exec -i novelcraft-db psql -U novelcraft -d novelcraft < backend/schema_v8.sql
+```
+
+3. 重启服务使新代码生效：
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+4. 打开 http://localhost:8100/health 确认返回的 `version` 是你期望的新版本号。
+
+### 以后每次升级都要这样做吗？
+
+是的，只要 `schema_v8.sql`（或后续版本的对应文件）里新增了表或字段，都建议在升级代码后手动执行一遍该脚本，直到项目引入自动化迁移工具（如 Alembic）为止。
+
+---
 
 | 分类 | 功能 | 说明 |
 |------|------|------|

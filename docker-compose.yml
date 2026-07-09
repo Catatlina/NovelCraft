@@ -7,50 +7,72 @@ services:
       - "8100:8100"
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://novelcraft:novelcraft123@db:5432/novelcraft
-      - REDIS_URL=redis://redis:6379/0
+      # 与 db 服务保持同一组变量来源，避免 .env 改密码后 api/worker 仍用旧凭证连接失败
+      # 注意：这里不再提供弱密码兜底，DB_PASSWORD/REDIS_PASSWORD 必须在 .env 里显式设置，
+      # 否则容器启动时连接数据库/Redis会直接失败(宁可启动失败也不用弱密码，安全优先)
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-novelcraft}:${DB_PASSWORD}@db:5432/${DB_NAME:-novelcraft}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - TZ=Asia/Shanghai
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api/v1
+    container_name: novelcraft-web
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
         condition: service_started
     restart: unless-stopped
-    volumes:
-      - ./backend/app:/app/app  # hot reload in dev
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
 
   worker:
     build: ./backend
     container_name: novelcraft-worker
-    command: celery -A app.tasks.pipeline.celery_app worker --loglevel=info -c 2
+    # -Q 显式声明监听的队列：task_routes 把任务路由到这5个具名队列，
+    # 若不显式声明，Celery worker 默认只消费 "celery" 队列，会导致这些任务永远不被执行（P0-1 修复）。
+    # 保留 celery 默认队列兜底，防止未来新增任务忘记加路由规则时被静默丢弃。
+    command: celery -A app.tasks.pipeline.celery_app worker --loglevel=info -c 2 -Q idea,outline,chapter,review,publish,celery
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://novelcraft:novelcraft123@db:5432/novelcraft
-      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-novelcraft}:${DB_PASSWORD}@db:5432/${DB_NAME:-novelcraft}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
-    volumes:
-      - ./backend/app:/app/app
 
   db:
     image: pgvector/pgvector:pg16
     container_name: novelcraft-db
-    ports:
-      - "15433:5432"
+    # 默认不对宿主机暴露端口：api/worker 通过容器内部网络访问，外部不需要直连数据库。
+    # 如果你需要用 DBeaver/psql 等工具从宿主机直接连接调试，取消下面两行的注释即可。
+    # ports:
+    #   - "15433:5432"
     environment:
-      POSTGRES_USER: novelcraft
-      POSTGRES_PASSWORD: novelcraft123
-      POSTGRES_DB: novelcraft
+      POSTGRES_USER: ${DB_USER:-novelcraft}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-novelcraft}
     volumes:
       - pgdata:/var/lib/postgresql/data
       # 自动执行建表脚本（pgvector 扩展已内置在 pgvector 镜像中）
       - ./backend/schema_v8.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U novelcraft"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -58,8 +80,20 @@ services:
   redis:
     image: redis:7-alpine
     container_name: novelcraft-redis
-    ports:
-      - "16379:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    # 同上：默认不对宿主机暴露端口，减少攻击面。需要本地调试时再取消注释。
+    # ports:
+    #   - "16379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
 volumes:
   pgdata:
+  redisdata:

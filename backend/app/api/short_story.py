@@ -1,9 +1,10 @@
 """短篇生成 API (Phase 3)
 对接 prompts.py 的 novel-short-write 引擎。
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from app.core.ratelimit import ai_limiter
 from app.api.deps import get_current_user
 from app.db.models import User
 from app.services.deepseek_client import DeepSeekError, chat_completion
@@ -23,16 +24,21 @@ class ShortStoryRequest(BaseModel):
 
 
 @router.post("/short")
-async def generate_short(req: ShortStoryRequest, user: User = Depends(get_current_user)):
+@ai_limiter.limit("5/minute")
+async def generate_short(request: Request, response: Response, req: ShortStoryRequest, user: User = Depends(get_current_user)):
     """
     根据一句话梗概生成完整短篇（5000-20000字）。
     调用 novel-short-write Prompt 引擎。
+
+    注意：底层 Prompt 引擎（build_novel_short_write_messages）目前只支持
+    topic/genre/target_words/style 四个维度，不支持"接着写"（续写已有文本）。
+    req.continue_from 字段暂时收下但不会被使用——如果需要真正的短篇续写能力，
+    需要先给 build_novel_short_write_messages 增加对应参数，这里不做无依据的假设。
     """
     messages = build_novel_short_write_messages(
-        premise=req.premise,
-        style_tags=req.style_tags,
+        topic=req.premise,
+        style=", ".join(req.style_tags) if req.style_tags else "",
         target_words=req.target_words,
-        continue_from=req.continue_from,
     )
     try:
         r = await chat_completion(messages, temperature=0.9, max_tokens=16384)

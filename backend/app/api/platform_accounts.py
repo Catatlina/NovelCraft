@@ -1,21 +1,20 @@
 """
 Phase 4: 平台账号绑定 API — OAuth/Cookie 凭证加密存储。
-使用 Fernet 对称加密（密钥从环境变量 ACCOUNT_ENCRYPTION_KEY 读取）。
+使用 Fernet 对称加密（密钥从环境变量 ACCOUNT_ENCRYPTION_KEY 读取，通过 settings 统一管理）。
 """
 from __future__ import annotations
 
-import os
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, delete as sa_delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import PlatformAccount, User
 
@@ -24,27 +23,43 @@ router = APIRouter(prefix="/api/v1/platform-accounts", tags=["platform-accounts"
 # ---------------------------------------------------------------------------
 # Encryption helper
 # ---------------------------------------------------------------------------
+#
+# P2-fix: 此前实现在 ACCOUNT_ENCRYPTION_KEY 未配置时会静默生成一把仅在当前
+# 进程内存活的随机密钥。容器重启（部署升级/崩溃恢复/扩容）后新进程会生成
+# 一把不同的密钥，导致此前用旧密钥加密的 encrypted_credentials 永久无法解密，
+# 且不会报错——这是"安静的数据丢失"。
+#
+# 修复原则：不阻塞未使用本功能的用户启动应用（保持向后兼容/最小改动），
+# 但只要真正调用加密/解密，就必须显式配置密钥，缺失时 fail-fast 报错，
+# 而不是静默生成一把用后即丢的密钥。
 
 _encryption_key: bytes | None = None
+_key_checked = False
 
 
 def _get_fernet() -> Fernet:
-    """Lazy-init Fernet from ACCOUNT_ENCRYPTION_KEY env var."""
-    global _encryption_key
-    if _encryption_key is None:
-        key_str = os.getenv("ACCOUNT_ENCRYPTION_KEY", "")
+    """从 settings.account_encryption_key 读取密钥；未配置时 fail-fast 而非静默生成。"""
+    global _encryption_key, _key_checked
+    if not _key_checked:
+        _key_checked = True
+        key_str = settings.account_encryption_key
         if not key_str:
-            # Generate a default key for development; production MUST override
-            key_str = os.getenv(
-                "ACCOUNT_ENCRYPTION_KEY",
-                Fernet.generate_key().decode(),
+            raise HTTPException(
+                500,
+                "ACCOUNT_ENCRYPTION_KEY 未配置，无法加密/解密平台账号凭证。"
+                "请在 .env 中设置一个固定密钥后重启服务："
+                "python3 -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"。"
+                "切勿在配置后再次更改该密钥，否则历史凭证将无法解密。",
             )
-        # Fernet keys must be 32 url-safe base64-encoded bytes
         try:
-            _encryption_key = key_str.encode() if isinstance(key_str, str) else key_str
-            Fernet(_encryption_key)  # validate
-        except Exception:
-            _encryption_key = Fernet.generate_key()
+            key_bytes = key_str.encode() if isinstance(key_str, str) else key_str
+            Fernet(key_bytes)  # validate format
+        except Exception as e:
+            raise HTTPException(
+                500,
+                f"ACCOUNT_ENCRYPTION_KEY 格式无效，必须是 32 字节 url-safe base64 编码的 Fernet 密钥: {e}",
+            ) from e
+        _encryption_key = key_bytes
     return Fernet(_encryption_key)
 
 
@@ -235,9 +250,12 @@ async def refresh_token(
 
     # In production, this would call the platform's OAuth refresh endpoint.
     # For now, we update the expires_at to extend by 30 days.
-    new_expiry = datetime.now(timezone.utc).replace(
-        day=min(datetime.now(timezone.utc).day + 30, 28)
-    )
+    # 此前这里用 .replace(day=min(now.day+30, 28)) 模拟"加30天"，但 .replace()
+    # 不会跨月进位，只是把"日"这个字段替换成一个 1-28 之间的数字——比如今天是
+    # 1月15日，min(15+30,28)=28，结果是1月28日，只延长了13天而不是30天；
+    # 如果今天是1月30日，min(30+30,28)=28，结果甚至变成了1月28日，比现在的
+    # 过期时间还早，等于让账号立刻失效。改用 timedelta 才是正确的"加30天"。
+    new_expiry = datetime.now(timezone.utc) + timedelta(days=30)
     account.expires_at = new_expiry
     await db.commit()
 

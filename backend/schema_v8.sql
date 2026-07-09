@@ -18,9 +18,18 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+
+-- 用户级 AI 配置：API Key 服务端加密保存，前端不再写 localStorage
+CREATE TABLE IF NOT EXISTS user_ai_settings (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    encrypted_deepseek_api_key TEXT,
+    deepseek_model TEXT DEFAULT 'deepseek-chat',
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS novel_projects (
     id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id                UUID REFERENCES users(id) ON DELETE SET NULL,
+    user_id                UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title                  TEXT NOT NULL,
     genre TEXT,
     platform TEXT,
@@ -96,8 +105,14 @@ CREATE TABLE IF NOT EXISTS generation_tasks (
     project_id UUID NOT NULL REFERENCES novel_projects(id) ON DELETE CASCADE,
     type TEXT NOT NULL,
     status TEXT DEFAULT 'queued',
+    request_id TEXT UNIQUE,
+    retry_count INT DEFAULT 0,
+    cancel_requested BOOLEAN DEFAULT FALSE,
+    last_error_code TEXT,
     progress JSONB DEFAULT '{}',
     error_log TEXT,
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -228,6 +243,28 @@ CREATE TABLE IF NOT EXISTS chapter_versions (
     UNIQUE(chapter_id, version_num)
 );
 
+-- AI Token 成本账本
+CREATE TABLE IF NOT EXISTS token_ledger (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES novel_projects(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    task_type TEXT NOT NULL,
+    model TEXT,
+    estimated_tokens INT DEFAULT 0,
+    actual_tokens INT DEFAULT 0,
+    input_tokens INT DEFAULT 0,
+    output_tokens INT DEFAULT 0,
+    unit_price_input NUMERIC,
+    unit_price_output NUMERIC,
+    cost_usd NUMERIC,
+    cost_cny NUMERIC,
+    status TEXT DEFAULT 'reserved' CHECK (status IN ('reserved','settled','released')),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    settled_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_token_ledger_project_status ON token_ledger(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_token_ledger_user_created ON token_ledger(user_id, created_at DESC);
+
 -- Phase 8: 埋点事件
 CREATE TABLE IF NOT EXISTS analytics_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -238,3 +275,22 @@ CREATE TABLE IF NOT EXISTS analytics_events (
 );
 CREATE INDEX IF NOT EXISTS idx_ae_project ON analytics_events(project_id);
 CREATE INDEX IF NOT EXISTS idx_ae_type ON analytics_events(event_type);
+
+-- ============================================
+-- P1-1: 关键查询索引（避免百万字级全表扫描）
+-- ============================================
+CREATE INDEX IF NOT EXISTS idx_chapters_project_num ON novel_chapters(project_id, chapter_num);
+CREATE INDEX IF NOT EXISTS idx_chapters_status ON novel_chapters(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_foreshadow_project_status ON foreshadow_pool(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_type ON generation_tasks(project_id, type);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_status ON generation_tasks(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_request_id ON generation_tasks(request_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_chapter ON quality_reviews(chapter_id);
+CREATE INDEX IF NOT EXISTS idx_analytics_created ON analytics_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_project_type ON knowledge_embeddings(project_id, knowledge_type);
+
+-- pgvector 向量索引（IVFFlat，大规模数据必需要）
+CREATE INDEX IF NOT EXISTS idx_wse_embedding ON world_setting_embeddings
+    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX IF NOT EXISTS idx_ke_embedding ON knowledge_embeddings
+    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);

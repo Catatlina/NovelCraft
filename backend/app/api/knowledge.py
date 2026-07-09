@@ -8,7 +8,6 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_user_project
-from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import KnowledgeEmbedding, NovelProject, User, WorldSettingEmbedding
 from app.services.deepseek_client import DeepSeekError, chat_completion
@@ -48,25 +47,7 @@ class InheritRequest(BaseModel):
 # -----------------------------------------------------------
 
 
-async def _get_embedding(text: str) -> list[float] | None:
-    """调用 DeepSeek Embeddings API 生成文本嵌入向量"""
-    import httpx
-    from app.services.deepseek_client import _request_api_key
-    key = _request_api_key.get() or settings.deepseek_api_key
-    if not key:
-        return None
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{settings.deepseek_base_url}/embeddings",
-                json={"model": "deepseek-chat", "input": text[:1000]},
-                headers={"Authorization": f"Bearer {key}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["data"][0]["embedding"]
-    except Exception:
-        return None
+from app.services.context_hub import _get_embedding
 
 
 def _compute_text_hash(text: str) -> str:
@@ -98,7 +79,7 @@ async def embed_knowledge(
     )
     db.add(emb)
     await db.commit()
-    return {"id": str(emb.id), "type": req.knowledge_type, "status": "stored", "embedding_dim": len(embedding)}
+    return {"id": str(emb.id), "type": req.knowledge_type, "status": "stored", "embedding_dim": len(embedding) if embedding else 0}
 
 
 @router.post("/search")
@@ -111,9 +92,11 @@ async def search_knowledge(
     await get_user_project(req.project_id, user, db)
 
     query_embedding = await _get_embedding(req.query)
+    if not query_embedding:
+        raise HTTPException(502, "AI Embeddings 服务暂时不可用，请稍后重试")
     vec_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
 
-    # pgvector cosine similarity search
+    # 每页限制防止全表扫描 (P1-2: 大数据量时建议加 pg_trgm GIN索引)
     result = await db.execute(
         text("""
             SELECT id, knowledge_type, content, 

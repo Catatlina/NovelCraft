@@ -22,6 +22,7 @@ from sqlalchemy import (
     ARRAY,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -53,13 +54,16 @@ class User(Base):
     platform_accounts: Mapped[list["PlatformAccount"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    ai_settings: Mapped["UserAISettings | None"] = relationship(
+        back_populates="user", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class NovelProject(Base):
     __tablename__ = "novel_projects"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     genre: Mapped[str | None] = mapped_column(Text)
     platform: Mapped[str | None] = mapped_column(Text)
@@ -194,8 +198,14 @@ class GenerationTask(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("novel_projects.id", ondelete="CASCADE"))
     type: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, default="queued")
-    progress: Mapped[dict] = mapped_column(JSONB, default=dict)
+    request_id: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    progress: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSONB), default=dict)
     error_log: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
@@ -260,6 +270,21 @@ class ProjectWorldRule(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     project: Mapped["NovelProject"] = relationship(back_populates="world_rules_rel")
+
+
+class UserAISettings(Base):
+    """用户级 AI 配置：服务端加密保存 API Key，前端只显示是否已配置。"""
+
+    __tablename__ = "user_ai_settings"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    encrypted_deepseek_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deepseek_model: Mapped[str | None] = mapped_column(Text, default="deepseek-chat")
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+    user: Mapped["User"] = relationship(back_populates="ai_settings")
 
 
 class PlatformAccount(Base):
@@ -369,6 +394,29 @@ class ChapterVersion(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     chapter: Mapped["NovelChapter"] = relationship(back_populates="chapter_versions")
+
+
+class TokenLedger(Base):
+    """AI Token 成本账本：预留、结算、释放，避免并发超预算。"""
+
+    __tablename__ = "token_ledger"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("novel_projects.id", ondelete="CASCADE"))
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    task_type: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    estimated_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    actual_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    unit_price_input: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    unit_price_output: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    cost_usd: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    cost_cny: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="reserved")  # reserved | settled | released
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    settled_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
 
 class AnalyticsEvent(Base):

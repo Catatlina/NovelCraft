@@ -21,6 +21,7 @@ target_chapter 相关的关键词/实体做 top-k 召回。pgvector 不可用时
 """
 from __future__ import annotations
 
+import logging
 import uuid
 
 from sqlalchemy import select, text
@@ -28,6 +29,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.models import ForeshadowPool, NovelChapter, NovelProject, WorldSettingEmbedding
+
+logger = logging.getLogger("novelcraft.context_hub")
 
 
 async def _get_embedding(text: str) -> list[float] | None:
@@ -44,13 +47,18 @@ async def _get_embedding(text: str) -> list[float] | None:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 f"{settings.deepseek_base_url}/embeddings",
-                json={"model": "deepseek-chat", "input": text},
+                json={"model": settings.deepseek_embedding_model, "input": text},
                 headers={"Authorization": f"Bearer {key}"},
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["data"][0]["embedding"]
-    except Exception:
+            data_list = data.get("data", [])
+            if not data_list:
+                return None
+            return data_list[0].get("embedding")
+    except Exception as e:
+        import logging
+        logging.getLogger("novelcraft").warning(f"Embeddings API 调用失败 (model={settings.deepseek_embedding_model}): {e}")
         return None
 
 
@@ -207,8 +215,14 @@ async def _retrieve_relevant_world_setting(
                 if parts
                 else _fallback_world_setting(project)
             )
-    except Exception:
-        pass
+    except Exception as e:
+        # P1-5 fix: 此前这里静默吞掉所有异常直接降级——如果失败原因不是
+        # 'pgvector扩展未安装'而是真正的SQL/向量维度错误，语义检索会永久
+        # 悄悄退化成关键词搜索且无人知晓。降级行为保留(可用性优先)，但必须留痕。
+        logger.warning(
+            "pgvector 语义检索失败，已降级为关键词检索 (project=%s): %s: %s",
+            project.id, type(e).__name__, e,
+        )
 
     # 降级：关键词模糊匹配
     return await _keyword_fallback_retrieval(project, query_text, db)
@@ -244,7 +258,11 @@ async def _keyword_fallback_retrieval(
                     seen_ids.add(str(row.id))
                     source_label = (row.extra or {}).get("source", "世界观")
                     parts.append(f"【{source_label}】\n{row.chunk_text[:800]}")
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "关键词降级检索失败 (project=%s, keyword=%r): %s: %s",
+                project.id, kw, type(e).__name__, e,
+            )
             continue
 
     if parts:

@@ -12,7 +12,7 @@ interface QualityBallProps {
  * Framer Motion 浮动动画，点击可查看质量详情
  */
 const QualityBall: React.FC<QualityBallProps> = ({ chapter }) => {
-  const score: number | null = chapter?.review_score ?? null;
+  const score: number | null = chapter?.overall_score ?? null;
 
   const handleClick = (): void => {
     // TODO: 打开质量详情面板或跳转到质量页面

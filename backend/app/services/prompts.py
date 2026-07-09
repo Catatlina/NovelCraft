@@ -85,17 +85,9 @@ def parse_novel_write_response(raw_content: str) -> dict:
     解析模型返回的 JSON。做了基本容错（模型偶尔会在JSON外包一层```json```代码块）。
     解析失败时抛 ValueError，上层（api/generation.py）应捕获并计入失败重试。
     """
-    cleaned = raw_content.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`")
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.strip()
-
-    try:
-        data = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"模型返回内容不是合法JSON: {e}\n原始内容前200字: {raw_content[:200]}") from e
+    data = _clean_json_response(raw_content)
+    if not data:
+        raise ValueError(f"模型返回内容不是合法JSON\n原始内容前200字: {raw_content[:200]}")
 
     required_keys = {"title", "content", "summary"}
     missing = required_keys - data.keys()
@@ -112,13 +104,25 @@ def parse_novel_write_response(raw_content: str) -> dict:
 # ============================================================
 
 
-def build_novel_scan_messages(platform_results: list[dict]) -> list[dict]:
+def build_novel_scan_messages(platform_results: list[dict] | None = None, *, platforms: list[str] | None = None, raw_data: str = "") -> list[dict]:
     """
     novel-scan Prompt 引擎：对众平台扫榜结果做聚合分析和趋势识别。
+
+    支持两种调用方式：
+    1. build_novel_scan_messages([{"platform": "...", "books": [...], "region": "..."}, ...])
+    2. build_novel_scan_messages(platforms=["起点","番茄"], raw_data="分析这些平台...")
 
     platform_results: list of {"platform": str, "books": [{"title": str}, ...], "region": str}
     返回的系统提示要求模型输出该轮扫榜的趋势总结。
     """
+    if platform_results is None:
+        if platforms:
+            platform_results = [
+                {"platform": p, "books": [], "region": "国内" if p not in ("Webnovel Trending", "Royal Road Best", "Wattpad Hot", "ScribbleHub Latest", "NovelUpdates Ranking") else "海外"}
+                for p in platforms
+            ]
+        else:
+            platform_results = []
     system_prompt = (
         "你是一名资深网络文学市场分析师，正在基于多个平台的榜单数据进行趋势研判。"
         "请分析以下榜单数据，识别当前热门题材、叙事模式、读者偏好变化趋势。"
@@ -144,7 +148,7 @@ def build_novel_scan_messages(platform_results: list[dict]) -> list[dict]:
 
 【样本数据（各平台前5）】
 {books_text}
-
+{chr(10) + '【原始数据/附加上下文】' + chr(10) + raw_data[:3000] if raw_data else ''}
 请分析当前市场的热门趋势和读者偏好，按 system prompt 格式输出 JSON。"""
 
     return [
@@ -158,12 +162,20 @@ def build_novel_scan_messages(platform_results: list[dict]) -> list[dict]:
 # ============================================================
 
 
-def build_novel_analyze_messages(book: dict) -> list[dict]:
+def build_novel_analyze_messages(book: dict | None = None, *, title: str = "", platform: str = "起点", region: str = "国内", chapters_text: str = "", genre: str = "") -> list[dict]:
     """
     novel-analyze Prompt 引擎：分析单本书的爆款潜力、市场契合度、可借鉴元素。
 
-    book: {"title": str, "platform": str, "region": str}
+    支持两种调用方式：
+    1. build_novel_analyze_messages({"title": "...", "platform": "...", "region": "..."})
+    2. build_novel_analyze_messages(title="...", chapters_text="...")
     """
+    if book is None:
+        book = {"title": title, "platform": platform, "region": region}
+    if chapters_text:
+        book["first_chapter"] = chapters_text[:500]
+    if genre:
+        book["genre"] = genre
     system_prompt = (
         "你是一名资深网文编辑，正在评估一本书的爆款潜力和可借鉴性。"
         "输出必须是合法 JSON，不要输出任何 JSON 之外的文字，格式如下：\n"
@@ -179,7 +191,7 @@ def build_novel_analyze_messages(book: dict) -> list[dict]:
 书名：《{book.get('title', '未知')}》
 来源平台：{book.get('platform', '未知')}
 地区：{book.get('region', '未知')}
-
+{chr(10) + '开篇内容：' + book.get('first_chapter', '')[:800] if book.get('first_chapter') else ''}
 请根据书名和在榜单中的位置，推断其题材、目标读者、商业策略，并给出爆款评分。
 严格按 system prompt 中约定的 JSON 格式输出。"""
 
@@ -191,18 +203,7 @@ def build_novel_analyze_messages(book: dict) -> list[dict]:
 
 def parse_novel_analyze_response(raw_content: str) -> dict:
     """解析 novel-analyze 返回的 JSON"""
-    cleaned = raw_content.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`")
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.strip()
-
-    try:
-        data = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"novel-analyze 返回非JSON: {e}") from e
-
+    data = _clean_json_response(raw_content)
     data.setdefault("hype_score", 0)
     data.setdefault("market_fit", "")
     data.setdefault("reason", "")
@@ -216,11 +217,20 @@ def parse_novel_analyze_response(raw_content: str) -> dict:
 # novel-translate: 多平台格式适配 Prompt
 # ============================================================
 
+# 供 API 层 (app/api/translate.py) 展示可选平台列表 + 校验 target_platform 合法性。
+# key 必须和下面 build_novel_translate_messages() 里 platform_style_guides 的 key 保持一致。
+PLATFORM_TRANSLATE_CONFIGS: dict[str, dict[str, str]] = {
+    "webnovel": {"lang": "en", "style": "流畅自然，保留东方修炼体系术语，适合移动端阅读"},
+    "royalroad": {"lang": "en", "style": "文学性较强，LitRPG/Progression Fantasy 风格"},
+    "wattpad": {"lang": "en", "style": "青春化表达，对话比例高，段落简短"},
+    "scribblehub": {"lang": "en", "style": "介于 Webnovel 和 Royal Road 之间，接受日式轻小说元素"},
+}
+
 
 def build_novel_translate_messages(
-    title: str,
-    content: str,
-    target_platform: str,
+    title: str = "",
+    content: str = "",
+    target_platform: str = "webnovel",
     glossary: dict | None = None,
 ) -> list[dict]:
     """
@@ -414,19 +424,22 @@ def build_novel_short_write_messages(
     ]
 
 
-# ═══ Parse Functions (容错 JSON 解析) ═══
+# ═══ Shared Utilities ═══
 
-def _safe_parse_json(raw: str):
+def _clean_json_response(raw: str) -> dict:
+    """统一 JSON 清洗：去除 markdown code block 包装，解析 JSON。"""
     cleaned = raw.strip()
     if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`")
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.strip()
+        cleaned = cleaned.strip("`").removeprefix("json").strip()
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         return {}
+
+# ═══ Parse Functions (容错 JSON 解析) ═══
+
+def _safe_parse_json(raw: str):
+    return _clean_json_response(raw)
 
 
 def parse_novel_scan_response(raw_content: str) -> list[dict]:

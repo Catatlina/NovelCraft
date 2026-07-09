@@ -17,6 +17,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import SearchBar from '@/components/shared/SearchBar';
 import { useProjectStore } from '@/store/projectStore';
 import { useAuthStore } from '@/store/authStore';
+import { useProjects } from '@/hooks/useApi';
 
 /** 侧边栏导航项定义 */
 export interface NavItem {
@@ -58,16 +59,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   // 项目选择器下拉
   const [projectMenuOpen, setProjectMenuOpen] = useState<boolean>(false);
-  const [selectedProject, setSelectedProject] = useState<string>('示例项目 — 星辰之海');
-
   const projectMenuRef = useRef<HTMLDivElement>(null);
-
-  // Mock 项目列表
-  const projects: string[] = [
-    '示例项目 — 星辰之海',
-    '新作 — 时间猎手',
-    '旧作 — 雨巷深处',
-  ];
+  const { data: projects = [] } = useProjects();
 
   // 切换暗色模式
   const toggleDark = useCallback((): void => {
@@ -117,6 +110,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   // 当前选中的项目 ID（来自全局 store，用于拼接项目路由）
   const projectId: string | null = useProjectStore((s) => s.selectedProjectId);
+  const setSelectedProjectId = useProjectStore((s) => s.setSelectedProjectId);
+  const selectedProject = projects.find((p) => p.id === projectId)?.title || '请选择项目';
 
   /** 侧边栏导航项 — 根据 selectedProjectId 动态生成项目相关路径 */
   const NAV_ITEMS: NavItem[] = useMemo<NavItem[]>(
@@ -238,22 +233,22 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                   className="absolute left-0 top-full mt-1 w-64 rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-600 dark:bg-gray-800 z-50"
                   role="listbox"
                 >
-                  {projects.map((proj: string) => (
+                  {projects.map((proj) => (
                     <button
-                      key={proj}
+                      key={proj.id}
                       className={`w-full px-4 py-2 text-left text-sm transition-colors hover:bg-primary-50 dark:hover:bg-gray-700 ${
-                        proj === selectedProject
+                        proj.id === projectId
                           ? 'font-semibold text-primary-500'
                           : 'text-gray-700 dark:text-gray-200'
                       }`}
                       onClick={() => {
-                        setSelectedProject(proj);
+                        setSelectedProjectId(proj.id);
                         setProjectMenuOpen(false);
                       }}
                       role="option"
-                      aria-selected={proj === selectedProject}
+                      aria-selected={proj.id === projectId}
                     >
-                      {proj}
+                      {proj.title}
                     </button>
                   ))}
                   <div className="border-t border-gray-100 dark:border-gray-600 mt-1 pt-1">
@@ -261,7 +256,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                       className="w-full px-4 py-2 text-left text-sm text-primary-500 hover:bg-primary-50 dark:hover:bg-gray-700"
                       onClick={() => {
                         setProjectMenuOpen(false);
-                        // TODO: open create project modal
+                        navigate('/');
                       }}
                     >
                       + 新建项目

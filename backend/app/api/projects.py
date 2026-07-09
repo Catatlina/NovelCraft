@@ -5,7 +5,7 @@
 """
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +19,7 @@ from app.core.state_machine import (
 from app.db.database import get_db
 from app.db.models import NovelChapter, NovelProject, User
 from app.schemas import (
-    ChapterOut,
+    ChapterSummaryOut,
     ProjectCreate,
     ProjectOut,
     ProjectOutlineUpdate,
@@ -64,12 +64,30 @@ async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_d
     await db.commit()
 
 
-@router.get("/{project_id}/chapters", response_model=list[ChapterOut])
-async def list_chapters(project_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+@router.get("/{project_id}/chapters", response_model=list[ChapterSummaryOut])
+async def list_chapters(
+    project_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """章节列表——只返回摘要信息，不含正文。
+
+    P0-1 fix: 此前这里用 ChapterOut（含完整正文）且没有分页，一次性把
+    项目下全部章节的全文都序列化返回。小说写得越长，这个接口的响应体积
+    就越大、没有上限，直接和"支持百万字级长篇"这个目标相悖。现在只
+    返回摘要 + 分页；正文通过新增的 GET /api/v1/chapters/{chapter_id}
+    按需获取。
+    """
     # 防御性校验：项目归属
     await get_user_project(str(project_id), user, db)
     result = await db.execute(
-        select(NovelChapter).where(NovelChapter.project_id == project_id).order_by(NovelChapter.chapter_num)
+        select(NovelChapter)
+        .where(NovelChapter.project_id == project_id)
+        .order_by(NovelChapter.chapter_num)
+        .offset(offset)
+        .limit(limit)
     )
     return result.scalars().all()
 

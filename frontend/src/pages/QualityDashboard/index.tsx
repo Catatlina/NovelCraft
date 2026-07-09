@@ -17,77 +17,15 @@ import QualityScoreRing from './QualityScoreRing';
 import DimensionCards from './DimensionCards';
 import ChapterQualityTable from './ChapterQualityTable';
 import RewritePanel from './RewritePanel';
-import { useChapters, useQualityRewrite } from '@/hooks/useApi';
+import { useChapters, useQualityReview, useQualityRewrite } from '@/hooks/useApi';
+import { getChapter } from '@/api/endpoints';
 import type {
-  Chapter,
+  ChapterSummary,
   QualityDimension,
   DimensionScore,
   QualityReview,
   RewriteRequest,
 } from '@/types';
-
-/** 模拟质量数据（API 未就绪时作为 fallback） */
-function generateMockReview(): QualityReview {
-  return {
-    id: 'mock-review-1',
-    project_id: '',
-    chapter_id: '',
-    overall_score: 78,
-    dimensions: [
-      {
-        name: 'readability',
-        label: '可读性',
-        score: 85,
-        issues: ['部分段落过长，建议拆分'],
-        suggestions: ['将超过200字的段落拆分为2-3段'],
-      },
-      {
-        name: 'pacing',
-        label: '节奏感',
-        score: 72,
-        issues: ['第3-5段节奏偏慢，缺乏冲突'],
-        suggestions: ['在第4段加入一个转折事件提升节奏'],
-      },
-      {
-        name: 'logic',
-        label: '逻辑性',
-        score: 80,
-        issues: [],
-        suggestions: ['整体逻辑流畅，继续保持'],
-      },
-      {
-        name: 'character',
-        label: '人物塑造',
-        score: 65,
-        issues: ['主角内心独白较少，读者难以共情'],
-        suggestions: ['增加2-3处主角的内心活动描写'],
-      },
-      {
-        name: 'emotion',
-        label: '情感共鸣',
-        score: 58,
-        issues: ['情感描写偏平淡', '缺少情绪高点'],
-        suggestions: ['在关键情节加入感官细节，提升感染力'],
-      },
-      {
-        name: 'style',
-        label: '文笔风格',
-        score: 90,
-        issues: [],
-        suggestions: ['文笔出色，继续保持个性风格'],
-      },
-      {
-        name: 'foreshadow',
-        label: '伏笔管理',
-        score: 70,
-        issues: ['有一个伏笔尚未回收'],
-        suggestions: ['检查第2章埋设的伏笔是否已在后文中回收'],
-      },
-    ],
-    summary: '整体质量良好，情感共鸣维度需重点提升。',
-    created_at: new Date().toISOString(),
-  };
-}
 
 /**
  * 7维质量面板主页面
@@ -101,6 +39,7 @@ const QualityDashboardPage: React.FC = () => {
   const { data: chapters, isLoading: loadingChapters } = useChapters(projectId);
 
   // Mutations
+  const reviewMutation = useQualityReview();
   const rewriteMutation = useQualityRewrite();
 
   // 状态
@@ -109,27 +48,51 @@ const QualityDashboardPage: React.FC = () => {
   const [rewriteOpen, setRewriteOpen] = useState<boolean>(false);
   const [targetDimension, setTargetDimension] = useState<DimensionScore | null>(null);
   const [rewrittenText, setRewrittenText] = useState<string>('');
+  const [selectedOriginalText, setSelectedOriginalText] = useState<string>('');
   const [isReviewing, setIsReviewing] = useState<boolean>(false);
 
-  // 当选中章节变化时触发质量评审
+  const normalizeReview = useCallback((raw: QualityReview): QualityReview => {
+    const rawDimensions = raw.dimensions as unknown;
+    const dimensions: DimensionScore[] = Array.isArray(rawDimensions)
+      ? raw.dimensions
+      : Object.entries((rawDimensions || {}) as Record<string, { score?: number; issues?: string[]; suggestions?: string[] }>).map(
+          ([name, value]) => ({
+            name: name as QualityDimension,
+            label: name,
+            score: typeof value.score === 'number' && value.score <= 10 ? value.score * 10 : (value.score || 0),
+            issues: value.issues || [],
+            suggestions: value.suggestions || [],
+          }),
+        );
+    return { ...raw, dimensions };
+  }, []);
+
+
+  // 当选中章节变化时触发真实质量评审；失败时显示错误，不再展示模拟数据。
   const handleSelectChapter = useCallback(
     async (chapterId: string) => {
       setSelectedChapterId(chapterId);
       setRewriteOpen(false);
       setIsReviewing(true);
+      setReview(null);
 
       try {
-        // 使用模拟数据（当 API 不可用时）
-        const mockData: QualityReview = generateMockReview();
-        setReview(mockData);
+        const chapterDetail = await getChapter(chapterId);
+        setSelectedOriginalText(chapterDetail.content || '');
+        const result = await reviewMutation.mutateAsync({
+          chapter_id: chapterId,
+          chapter_content: chapterDetail.content || '',
+          outline: '',
+          context: chapterDetail.summary || '',
+        });
+        setReview(normalizeReview(result));
       } catch {
-        // Fallback: use mock data
-        setReview(generateMockReview());
+        setReview(null);
       } finally {
         setIsReviewing(false);
       }
     },
-    [],
+    [normalizeReview, reviewMutation],
   );
 
   // 打开重写面板
@@ -144,7 +107,7 @@ const QualityDashboardPage: React.FC = () => {
     async (data: RewriteRequest) => {
       try {
         const result = await rewriteMutation.mutateAsync(data);
-        setRewrittenText(result.result);
+        setRewrittenText(result.rewritten);
       } catch {
         // 模拟重写结果
         setRewrittenText(
@@ -159,30 +122,31 @@ const QualityDashboardPage: React.FC = () => {
   );
 
   // 构建章节质量表格数据
+  // 此前这里7个维度分数全部用 Math.random() 编造，overallScore 也在没有
+  // 真实分时回落随机数——用户看到的是一堆假数据。现在改为只用真实的
+  // overall_score(来自后端 review_report)；7个维度的细分分数列表接口
+  // 本就不返回(在单章 review_report.dimensions 里)，且前端这套英文维度名
+  // 和后端的中文维度体系并不一致，这里不再编造，细分列显示"—"表示暂无。
   const chapterRows = useMemo(() => {
     if (!chapters) return [];
-    return chapters.slice(0, 10).map((ch: Chapter) => ({
+    return chapters.slice(0, 10).map((ch: ChapterSummary) => ({
       chapter: ch,
-      scores: {
-        readability: Math.round(60 + Math.random() * 35),
-        pacing: Math.round(55 + Math.random() * 40),
-        logic: Math.round(60 + Math.random() * 35),
-        character: Math.round(50 + Math.random() * 45),
-        emotion: Math.round(45 + Math.random() * 40),
-        style: Math.round(65 + Math.random() * 30),
-        foreshadow: Math.round(55 + Math.random() * 35),
-      },
-      overallScore: ch.review_score ?? Math.round(60 + Math.random() * 30),
+      scores: null,  // 细分维度分数需要单章详情，列表页不展示编造值
+      overallScore: ch.overall_score,  // 真实综合分，未审查时为 null
     }));
   }, [chapters]);
 
-  // 质量趋势数据（模拟最近5章）
+  // 质量趋势：用各章真实的 overall_score，只纳入已审查(有分)的章节
   const trendData = useMemo(() => {
-    return Array.from({ length: 5 }, (_, i: number) => ({
-      chapter: `第${i + 1}章`,
-      score: Math.round(65 + Math.random() * 25),
-    }));
-  }, []);
+    if (!chapters) return [];
+    return chapters
+      .filter((ch: ChapterSummary) => ch.overall_score != null)
+      .slice(0, 20)
+      .map((ch: ChapterSummary) => ({
+        chapter: `第${ch.chapter_num}章`,
+        score: ch.overall_score as number,
+      }));
+  }, [chapters]);
 
   // Loading
   if (loadingChapters && !chapters) {
@@ -323,8 +287,7 @@ const QualityDashboardPage: React.FC = () => {
         isOpen={rewriteOpen}
         onClose={() => setRewriteOpen(false)}
         originalText={
-          chapters?.find((c: Chapter) => c.id === selectedChapterId)?.content ??
-          '选择章节后查看原文'
+          selectedOriginalText || '选择章节后查看原文'
         }
         rewrittenText={rewrittenText}
         dimension={targetDimension}
