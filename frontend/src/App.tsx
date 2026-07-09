@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import AppLayout from '@/components/layout/AppLayoutV2';
+import AppLayout from '@/components/layout/AppLayout';
 import LoadingSpinner from '@/components/shared/LoadingSpinner';
 import { useAuthStore } from '@/store/authStore';
 
@@ -8,15 +8,15 @@ import { useAuthStore } from '@/store/authStore';
  * 懒加载页面组件
  * 各页面模块将在此被动态导入，减少首屏包体积
  */
-const Dashboard = lazy(() => import('@/pages/DashboardV2'));
-const WritingWorkspace = lazy(() => import('@/pages/WritingWorkspaceV2'));
-const ForeshadowBoard = lazy(() => import('@/pages/ForeshadowBoardV2'));
-const QualityDashboard = lazy(() => import('@/pages/QualityDashboardV2'));
-const TrendAnalysis = lazy(() => import('@/pages/TrendAnalysisV2'));
-const Settings = lazy(() => import('@/pages/SettingsV2'));
-const Login = lazy(() => import('@/pages/LoginV2'));
-const TranslatePage = lazy(() => import('@/pages/TranslatePageV2'));
-const AnalyticsDashboard = lazy(() => import('@/pages/AnalyticsDashboardV2'));
+const Dashboard = lazy(() => import('@/pages/Dashboard'));
+const WritingWorkspace = lazy(() => import('@/pages/WritingWorkspace'));
+const ForeshadowBoard = lazy(() => import('@/pages/ForeshadowBoard'));
+const QualityDashboard = lazy(() => import('@/pages/QualityDashboard'));
+const TrendAnalysis = lazy(() => import('@/pages/TrendAnalysis'));
+const Settings = lazy(() => import('@/pages/Settings'));
+const Login = lazy(() => import('@/pages/Login'));
+const TranslatePage = lazy(() => import('@/pages/TranslatePage'));
+const AnalyticsDashboard = lazy(() => import('@/pages/AnalyticsDashboard'));
 const QuickStart = lazy(() => import('@/pages/QuickStart'));
 const ConfigCenter = lazy(() => import('@/pages/ConfigCenter'));
 
