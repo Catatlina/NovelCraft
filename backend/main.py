@@ -168,7 +168,29 @@ app.include_router(user_ai_settings.router)                # 用户级 AI 配置
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "8.0.0"}
+    import logging
+    logger = logging.getLogger("novelcraft.health")
+    db_ok = False
+    redis_ok = False
+    # DB connectivity check
+    try:
+        from sqlalchemy import text as _text
+        async with AsyncSessionLocal() as db:
+            await db.execute(_text("SELECT 1"))
+        db_ok = True
+    except Exception as e:
+        logger.warning(f"Health check: DB unreachable: {e}")
+    # Redis connectivity check (best-effort; Celery tasks fail gracefully without it)
+    try:
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(settings.redis_url, socket_connect_timeout=2)
+        await r.ping()
+        await r.aclose()
+        redis_ok = True
+    except Exception as e:
+        logger.warning(f"Health check: Redis unreachable: {e}")
+    status = "ok" if (db_ok and redis_ok) else "degraded"
+    return {"status": status, "version": "8.0.0", "db": db_ok, "redis": redis_ok}
 
 
 # Global exception handler (P1-5)

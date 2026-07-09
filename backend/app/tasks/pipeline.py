@@ -356,15 +356,13 @@ def outline_pipeline_task(
                     else:
                         variant_hint = "请给出一个慢热型、重世界观铺陈的大纲，注重新奇感和深度。"
 
-                    user_prompt = f"""【选题】{topic}
-
-【世界观设定】{world_setting or "（未提供，请根据选题合理发挥）"}
-
-【目标字数】{target_words} 字
-
-{variant_hint}
-
-请严格按 system prompt 中约定的 JSON 格式输出。"""
+                    user_prompt = (
+                        "【选题】" + str(topic) + "\n\n"
+                        "【世界观设定】" + (str(world_setting) if world_setting else "（未提供，请根据选题合理发挥）") + "\n\n"
+                        "【目标字数】" + str(target_words) + " 字\n\n"
+                        + str(variant_hint) + "\n\n"
+                        "请严格按 system prompt 中约定的 JSON 格式输出。"
+                    )
 
                     try:
                         result = await chat_completion(
@@ -456,15 +454,15 @@ async def _check_outline_consistency(
     if not outline:
         return ["大纲为空"]
 
-    check_prompt = f"""请检查以下小说大纲是否存在逻辑一致性或前后矛盾的问题。
-
-【选题】{topic}
-【世界观】{world_setting or "无"}
-【大纲】
-{outline[:3000]}
-
-请列出发现的所有逻辑问题，每条以 "- " 开头。如果没有问题，回复"无"。
-只列出现实性逻辑问题（前后矛盾、时间线冲突、设定自洽性），不要评价创意好坏。"""
+    check_prompt = (
+        "请检查以下小说大纲是否存在逻辑一致性或前后矛盾的问题。\n\n"
+        "【选题】" + str(topic) + "\n"
+        "【世界观】" + (str(world_setting) if world_setting else "无") + "\n"
+        "【大纲】\n"
+        + str(outline[:3000]) + "\n\n"
+        "请列出发现的所有逻辑问题，每条以 \"- \" 开头。如果没有问题，回复\"无\"。\n"
+        "只列出现实性逻辑问题（前后矛盾、时间线冲突、设定自洽性），不要评价创意好坏。"
+    )
 
     try:
         result = await chat_completion(

@@ -19,7 +19,7 @@ from app.api.deps import get_current_user
 from app.db.database import get_db
 from datetime import datetime, timezone
 
-from app.db.models import ForeshadowPool, NovelChapter, NovelProject, TokenLedger, User
+from app.db.models import ChapterVersion, ForeshadowPool, NovelChapter, NovelProject, TokenLedger, User
 from app.schemas import ChapterOut, GenerateChapterRequest
 from app.services import context_hub, prompts
 from app.services.deepseek_client import DeepSeekError, chat_completion
@@ -173,6 +173,15 @@ async def _generate_single_chapter(db: AsyncSession, project: NovelProject, mode
     chapter.word_count = len(parsed["content"])
     chapter.summary = parsed["summary"]
     chapter.status = "draft"
+
+    # P0-4 fix: 自动创建首版快照，支持后续 diff 回溯到 AI 生成的原版
+    db.add(ChapterVersion(
+        chapter_id=chapter.id,
+        version_num=1,
+        content=parsed["content"],
+        word_count=chapter.word_count,
+        created_by="ai",
+    ))
 
     for fs in parsed.get("new_foreshadows", []):
         db.add(
