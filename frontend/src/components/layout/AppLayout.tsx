@@ -1,17 +1,8 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard,
-  PenLine,
-  Network,
-  BarChart3,
-  TrendingUp,
-  Settings,
-  Moon,
-  Sun,
-  Menu,
-  ChevronDown,
-  Globe,
+  LayoutDashboard, PenLine, Network, BarChart3, TrendingUp,
+  Settings, Moon, Sun, Menu, ChevronDown, Globe, Zap, Cog,
 } from 'lucide-react';
 import Sidebar from '@/components/layout/Sidebar';
 import SearchBar from '@/components/shared/SearchBar';
@@ -117,6 +108,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const NAV_ITEMS: NavItem[] = useMemo<NavItem[]>(
     () => [
       { path: '/', label: '总控驾驶舱', icon: <LayoutDashboard size={20} /> },
+      { path: '/quick-start', label: '快速开始', icon: <Zap size={20} /> },
       {
         path: projectId ? `/write/${projectId}` : '#',
         label: '创作工作台',
@@ -148,6 +140,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       { path: '/trends', label: '爆款分析', icon: <TrendingUp size={20} /> },
       { path: '/analytics', label: '数据分析', icon: <BarChart3 size={20} /> },
       { path: '/settings', label: '设置', icon: <Settings size={20} /> },
+      { path: '/config', label: '配置中心', icon: <Cog size={20} /> },
     ],
     [projectId],
   );
