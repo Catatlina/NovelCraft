@@ -18,6 +18,7 @@ const Login = lazy(() => import('@/pages/Login'));
 const TranslatePage = lazy(() => import('@/pages/TranslatePage'));
 const AnalyticsDashboard = lazy(() => import('@/pages/AnalyticsDashboard'));
 const QuickStart = lazy(() => import('@/pages/QuickStart'));
+const ConfigCenter = lazy(() => import('@/pages/ConfigCenter'));
 
 /** 页面加载时的悬浮动画 */
 const PageLoading: React.FC = () => (
@@ -57,6 +58,7 @@ const ProtectedLayout: React.FC = () => (
       <Suspense fallback={<PageLoading />}>
         <Routes>
           <Route index element={<Dashboard />} />
+          <Route path="config" element={<ConfigCenter />} />
           <Route path="quick-start" element={<QuickStart />} />
           <Route path="write/:projectId" element={<WritingWorkspace />} />
           <Route path="foreshadows/:projectId" element={<ForeshadowBoard />} />

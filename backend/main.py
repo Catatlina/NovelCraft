@@ -40,6 +40,7 @@ from app.api import (
     user_ai_settings,
     prompt_admin,
     quick_start,
+    config_center,
 )
 from app.core.config import settings
 from app.core.security import hash_password
@@ -183,6 +184,7 @@ app.include_router(translate.router)                   # Phase 3: 翻译出海
 app.include_router(user_ai_settings.router)                # 用户级 AI 配置
 app.include_router(prompt_admin.router)                     # P1-1: Prompt 模板管理
 app.include_router(quick_start.router)                      # 灵感快速开始
+app.include_router(config_center.router)                    # 可视化配置中心
 
 
 @app.get("/health")
