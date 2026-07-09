@@ -112,9 +112,9 @@ async def login(request: Request, req: LoginRequest, response: Response, db: Asy
 @limiter.limit("20/minute")
 async def refresh_token(
     response: Response,
+    db: AsyncSession = Depends(get_db),
     req: RefreshRequest | None = None,
     refresh_token: str | None = Cookie(None),
-    db: AsyncSession = Depends(get_db),
 ):
     """用 refresh token 换取新的 access token。
 
