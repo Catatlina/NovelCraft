@@ -124,9 +124,9 @@ async def assemble_context(
     anti_crash_reminders = _build_anti_crash_reminders(project, open_foreshadows)
 
     return {
-        "layer_1_overall_outline": project.overall_outline or "",
+        "layer_1_overall_outline": _truncate_context_layer(project.overall_outline or "", 8000, "layer_1_overall_outline"),
         "layer_2_current_arc_outline": _extract_current_arc(project.overall_outline, target_chapter_num, project.chapter_tree),
-        "layer_3_characters": project.characters_json or [],
+        "layer_3_characters": _truncate_context_layer(str(project.characters_json or []), 16000, "layer_3_characters"),
         "layer_4_world_setting_excerpt": world_setting_excerpt,
         "layer_5_open_foreshadows": open_foreshadows,
         "layer_6_recent_chapter_summaries": recent_summaries,
@@ -434,6 +434,14 @@ def _extract_current_arc(overall_outline: str | None, target_chapter_num: int, c
                 except ValueError:
                     continue
     return overall_outline[:1500]
+
+
+def _truncate_context_layer(text: str, max_chars: int, label: str) -> str:
+    """截断上下文层到 max_chars，超出时记录警告日志（P1-2: token 预算守卫）。"""
+    if len(text) <= max_chars:
+        return text
+    logger.warning("context_hub: %s truncated from %d to %d chars", label, len(text), max_chars)
+    return text[:max_chars]
 
 
 def _build_anti_crash_reminders(project: NovelProject, open_foreshadows: list[dict]) -> list[str]:
