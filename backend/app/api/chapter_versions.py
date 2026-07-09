@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import difflib
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -269,7 +269,7 @@ async def restore_version(
         "action": "restore",
         "from_version": target.version_num,
         "to_version": new_version,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }]
     await db.commit()
 
@@ -333,7 +333,7 @@ async def create_snapshot(
     chapter.version_history = (chapter.version_history or []) + [{
         "version_num": next_ver,
         "created_by": req.created_by,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }]
     await db.commit()
     await db.refresh(snapshot)

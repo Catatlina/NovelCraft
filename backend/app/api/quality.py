@@ -2,7 +2,7 @@
 对接 prompts.py 的 novel-review 引擎。
 """
 import uuid as _uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -98,7 +98,7 @@ async def _snapshot_and_apply(
     chapter.word_count = len(new_content)
     chapter.version_history = (chapter.version_history or []) + [{
         "action": "rewrite", "by": created_by, "to_version": new_version,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }]
     return snapshot
 
