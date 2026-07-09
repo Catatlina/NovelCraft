@@ -103,7 +103,7 @@ def parse_novel_write_response(raw_content: str) -> dict:
 # ============================================================
 
 
-def build_novel_scan_messages(platform_results: list[dict] | None = None, *, platforms: list[str] | None = None, raw_data: str = "") -> list[dict]:
+def build_novel_scan_messages(platform_results: list[dict] | None = None, *, platforms: list[str] | None = None, raw_data: str = "", template=None) -> list[dict]:
     """
     novel-scan Prompt 引擎：对众平台扫榜结果做聚合分析和趋势识别。
 
@@ -122,7 +122,7 @@ def build_novel_scan_messages(platform_results: list[dict] | None = None, *, pla
             ]
         else:
             platform_results = []
-    system_prompt = (
+    system_prompt = template.system_prompt if template else (
         "你是一名资深网络文学市场分析师，正在基于多个平台的榜单数据进行趋势研判。"
         "请分析以下榜单数据，识别当前热门题材、叙事模式、读者偏好变化趋势。"
         "输出必须是合法 JSON，不要输出任何 JSON 之外的文字，格式如下：\n"
@@ -161,7 +161,7 @@ def build_novel_scan_messages(platform_results: list[dict] | None = None, *, pla
 # ============================================================
 
 
-def build_novel_analyze_messages(book: dict | None = None, *, title: str = "", platform: str = "起点", region: str = "国内", chapters_text: str = "", genre: str = "") -> list[dict]:
+def build_novel_analyze_messages(book: dict | None = None, *, title: str = "", platform: str = "起点", region: str = "国内", chapters_text: str = "", genre: str = "", template=None) -> list[dict]:
     """
     novel-analyze Prompt 引擎：分析单本书的爆款潜力、市场契合度、可借鉴元素。
 
@@ -175,7 +175,7 @@ def build_novel_analyze_messages(book: dict | None = None, *, title: str = "", p
         book["first_chapter"] = chapters_text[:500]
     if genre:
         book["genre"] = genre
-    system_prompt = (
+    system_prompt = template.system_prompt if template else (
         "你是一名资深网文编辑，正在评估一本书的爆款潜力和可借鉴性。"
         "输出必须是合法 JSON，不要输出任何 JSON 之外的文字，格式如下：\n"
         '{"hype_score": 0-100, "market_fit": "市场契合度评价（一句话）", '
@@ -230,7 +230,7 @@ def build_novel_translate_messages(
     title: str = "",
     content: str = "",
     target_platform: str = "webnovel",
-    glossary: dict | None = None,
+    glossary: dict | None = None, *, template=None,
 ) -> list[dict]:
     """
     novel-translate Prompt 引擎：将中文章节翻译为英文并适配目标平台风格。
@@ -269,7 +269,7 @@ def build_novel_translate_messages(
         )
         glossary_text = f"\n【术语对照表】\n{glossary_items}\n"
 
-    system_prompt = (
+    system_prompt = template.system_prompt if template else (
         f"你是一名专业网络小说翻译，正在将中文网文译为英文发布到 {target_platform}。\n"
         f"{style_guide}\n"
         "请完整翻译以下章节，保留原文分节结构。"
@@ -299,7 +299,7 @@ def build_novel_review_messages(
     chapter_content: str,
     chapter_outline: str = "",
     context_summary: str = "",
-    previous_review: dict | None = None,
+    previous_review: dict | None = None, *, template=None,
 ) -> list[dict]:
     """
     novel-review Prompt 引擎：7维质量审查（对齐 requirements_v7.md 3.2 节）。
@@ -311,7 +311,7 @@ def build_novel_review_messages(
 {json.dumps(previous_review, ensure_ascii=False, indent=2)[:1500]}
 """
 
-    system_prompt = (
+    system_prompt = template.system_prompt if template else (
         "你是一名资深网文质检编辑，正在对一章网文正文做7维度质量审查。"
         "输出必须是合法 JSON，不要输出任何 JSON 之外的文字，格式如下：\n"
         '{"dimensions": {"一致性": {"score": 0-10, "issues": []}, '
@@ -355,7 +355,7 @@ def build_novel_review_messages(
 # ============================================================
 
 
-def build_novel_deslop_messages(content: str, mode: str = "polish") -> list[dict]:
+def build_novel_deslop_messages(content: str, mode: str = "polish", *, template=None) -> list[dict]:
     """
     novel-deslop Prompt 引擎：去AI味、润色、洗稿。
 
@@ -372,7 +372,7 @@ def build_novel_deslop_messages(content: str, mode: str = "polish") -> list[dict
 
     instruction = mode_instructions.get(mode, mode_instructions["polish"])
 
-    system_prompt = (
+    system_prompt = template.system_prompt if template else (
         "你是一名专业网文编辑，负责对文本进行润色打磨。"
         "保留原文的核心情节和人物，只优化表达方式。"
         "输出必须是合法 JSON，不要输出任何 JSON 之外的文字，格式如下：\n"
@@ -393,7 +393,7 @@ def build_novel_deslop_messages(content: str, mode: str = "polish") -> list[dict
 
 
 def build_novel_short_write_messages(
-    topic: str, genre: str = "", target_words: int = 5000, style: str = ""
+    topic: str, genre: str = "", target_words: int = 5000, style: str = "", *, template=None,
 ) -> list[dict]:
     """
     novel-short-write Prompt 引擎：短篇/中篇独立创作。
@@ -403,7 +403,7 @@ def build_novel_short_write_messages(
     target_words: 目标字数
     style: 风格描述
     """
-    system_prompt = (
+    system_prompt = template.system_prompt if template else (
         "你是一名专业短篇小说写手，正在创作一篇结构完整的短篇。"
         "你需要在一个有限篇幅内完成完整的起承转合。"
         "输出必须是合法 JSON，不要输出任何 JSON 之外的文字，格式如下：\n"
