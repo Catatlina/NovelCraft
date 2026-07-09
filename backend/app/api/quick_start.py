@@ -20,6 +20,7 @@ from app.db.models import NovelChapter, NovelProject, TokenLedger, User
 from app.services.context_hub import assemble_context
 from app.services.deepseek_client import DeepSeekError, chat_completion
 from app.services.novel_agents import get_novel_agents
+from app.services.plot_controller import AutoRevisionLoop, PlotController
 from app.services.prompts import build_novel_write_messages
 
 router = APIRouter(prefix="/api/v1/projects", tags=["quick-start"])
@@ -550,3 +551,62 @@ def _extract_chapter_title(content: str) -> str:
         line = line.strip("# ").strip()
         if line and not line.startswith("```"): return line[:40]
     return ""
+
+
+# ══════════════════════════════════════════
+# 剧情控制 + 自动返工闭环
+# ══════════════════════════════════════════
+
+class AutoReviseRequest(BaseModel):
+    chapter_content: str
+    chapter_num: int = 1
+    context: dict = {}
+
+
+class StoryThreadRequest(BaseModel):
+    threads: list[dict] = []  # [{name, next_event, status}]
+    chapter_content: str
+    chapter_num: int
+
+
+@router.post("/auto-revise")
+async def auto_revision_loop(
+    req: AutoReviseRequest,
+    _user: User = Depends(get_current_user),
+):
+    """自动返工闭环: 评分→判断(<80)→定向重写→再评分，最多3轮"""
+    loop = AutoRevisionLoop()
+    result = await loop.run(req.chapter_content, req.chapter_num, req.context or {})
+    return {
+        "final_content": result["content"],
+        "final_score": result["score"],
+        "iterations": result["iterations"],
+        "issues_found": len(result.get("issues", [])),
+    }
+
+
+@router.post("/story-threads")
+async def analyze_story_threads(
+    req: StoryThreadRequest,
+    _user: User = Depends(get_current_user),
+):
+    """分析章节中各故事线程推进情况"""
+    ctrl = PlotController()
+    for t in req.threads:
+        ctrl.threads.append(StoryThread(
+            id=t.get("id", ""), name=t.get("name", ""),
+            status=t.get("status", "active"),
+            next_event=t.get("next_event", ""),
+            progress=t.get("progress", 0),
+        ))
+    result = await ctrl.check_story_threads(req.chapter_content)
+    pacing = await ctrl.analyze_pacing(req.chapter_content, req.chapter_num)
+    return {
+        "threads": result,
+        "pacing": {
+            "action_ratio": pacing.action_ratio,
+            "dialogue_ratio": pacing.dialogue_ratio,
+            "conflict_intensity": pacing.conflict_intensity,
+            "readability": pacing.readability,
+        },
+    }
