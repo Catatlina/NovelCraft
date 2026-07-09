@@ -48,10 +48,10 @@ def _validate_password(password: str) -> str:
     return ""
 
 
-def _set_auth_cookies(response: Response, user_id: str) -> dict:
+def _set_auth_cookies(response: Response, user_id: str, token_version: int = 0) -> dict:
     """设置 httpOnly secure cookies 并返回 user 对象"""
-    access = create_access_token(user_id)
-    refresh = create_refresh_token(user_id)
+    access = create_access_token(user_id, token_version)
+    refresh = create_refresh_token(user_id, token_version)
     secure = settings.cookie_secure
     samesite = settings.cookie_samesite.lower()
     if samesite not in {"lax", "strict", "none"}:
@@ -93,7 +93,7 @@ async def register(request: Request, req: RegisterRequest, response: Response, d
     user = User(username=req.username, password_hash=hash_password(req.password), email=req.email)
     db.add(user)
     await db.commit()
-    _set_auth_cookies(response, str(user.id))
+    _set_auth_cookies(response, str(user.id), user.token_version)
     return {"user": {"id": str(user.id), "username": user.username, "email": user.email}}
 
 
@@ -104,11 +104,12 @@ async def login(request: Request, req: LoginRequest, response: Response, db: Asy
     user = result.scalar_one_or_none()
     if not user or not verify_password(req.password, user.password_hash):
         raise HTTPException(401, "用户名或密码错误")
-    _set_auth_cookies(response, str(user.id))
+    _set_auth_cookies(response, str(user.id), user.token_version)
     return {"user": {"id": str(user.id), "username": user.username, "email": user.email}}
 
 
 @router.post("/refresh")
+@limiter.limit("20/minute")
 async def refresh_token(
     response: Response,
     req: RefreshRequest | None = None,
@@ -131,8 +132,11 @@ async def refresh_token(
 
 
 @router.post("/logout")
-async def logout(response: Response):
-    """清除认证 cookies"""
+async def logout(response: Response, db: AsyncSession = Depends(get_db),
+                 user: User = Depends(get_current_user)):
+    """清除认证 cookies 并使所有已签发 token 失效"""
+    user.token_version += 1
+    await db.commit()
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
     response.delete_cookie("csrf_token")

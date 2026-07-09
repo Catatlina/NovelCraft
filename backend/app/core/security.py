@@ -20,26 +20,26 @@ def verify_password(plain: str, hashed: str) -> bool:
         salt_hex, stored = hashed.split(":", 1)
         salt = bytes.fromhex(salt_hex)
         dk = hashlib.scrypt(plain.encode(), salt=salt, n=16384, r=8, p=1)
-        return dk.hex() == stored
+        return secrets.compare_digest(dk.hex(), stored)
     except (ValueError, AttributeError):
         return False
 
 
-def create_access_token(user_id: str) -> str:
+def create_access_token(user_id: str, token_version: int = 0) -> str:
     """短期 access token (默认 15 分钟)"""
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_access_expire_minutes)
     return jwt.encode(
-        {"sub": str(user_id), "exp": expire, "type": "access"},
+        {"sub": str(user_id), "exp": expire, "type": "access", "tv": token_version},
         settings.secret_key,
         algorithm=settings.jwt_algorithm,
     )
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(user_id: str, token_version: int = 0) -> str:
     """长期 refresh token (默认 7 天)"""
     expire = datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_expire_days)
     return jwt.encode(
-        {"sub": str(user_id), "exp": expire, "type": "refresh"},
+        {"sub": str(user_id), "exp": expire, "type": "refresh", "tv": token_version},
         settings.secret_key,
         algorithm=settings.jwt_algorithm,
     )

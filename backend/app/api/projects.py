@@ -114,7 +114,7 @@ async def _do_transition(db: AsyncSession, project: NovelProject, target: str, r
 
 @router.post("/{project_id}/transition", response_model=ProjectOut)
 async def transition_project(project_id: uuid.UUID, payload: TransitionRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    result = await db.execute(select(NovelProject).where(NovelProject.id == project_id, NovelProject.user_id == user.id))
+    result = await db.execute(select(NovelProject).where(NovelProject.id == project_id, NovelProject.user_id == user.id).with_for_update())
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(404, "项目不存在")

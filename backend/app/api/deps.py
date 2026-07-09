@@ -6,6 +6,7 @@ from fastapi import Cookie, Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.security import decode_token_with_type
 from app.db.database import get_db
 from app.db.models import NovelChapter, NovelProject, User
@@ -42,6 +43,16 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(401, "用户不存在或已禁用")
+    # 校验 token_version：改密/登出后旧 token 自动失效
+    import jwt as _jwt
+    try:
+        payload = _jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm],
+                              options={"verify_exp": False})
+        token_tv = payload.get("tv", 0)
+        if token_tv != user.token_version:
+            raise HTTPException(401, "token 已失效，请重新登录")
+    except _jwt.JWTError:
+        pass  # 解析失败由外层 JWTError 处理
     return user
 
 

@@ -38,7 +38,9 @@ async def global_search(
     if not q.strip():
         return []
 
-    pattern = f"%{q}%"
+    import re as _re
+    escaped = _re.sub(r'([%_\\])', r'\\\1', q)
+    pattern = f"%{escaped}%"
     results: list[SearchResultItem] = []
 
     # 获取用户所有项目 ID
