@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import require_admin
 from app.db.database import get_db
 from app.db.models import PromptTemplate, User
 from app.services.prompt_registry import invalidate_cache
@@ -35,7 +35,7 @@ async def list_prompts(
     name: str | None = Query(None),
     active_only: bool = False,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_admin),
 ):
     """列出所有 Prompt 模板版本"""
     q = select(PromptTemplate)
@@ -59,7 +59,7 @@ async def list_prompts(
 async def create_prompt(
     req: PromptCreateRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_admin),
 ):
     """创建 Prompt 新版本（自动递增 version）"""
     result = await db.execute(
@@ -90,7 +90,7 @@ async def update_prompt(
     prompt_id: str,
     req: PromptUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_admin),
 ):
     """更新 Prompt 模板"""
     tpl = await db.get(PromptTemplate, prompt_id)
@@ -110,7 +110,7 @@ async def update_prompt(
 async def activate_prompt(
     prompt_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_admin),
 ):
     """激活指定版本并停用同名其他版本（原子操作）"""
     tpl = await db.get(PromptTemplate, prompt_id)

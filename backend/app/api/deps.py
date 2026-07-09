@@ -82,3 +82,12 @@ async def get_user_chapter(chapter_id: str, user: User, db: AsyncSession) -> Nov
     if not chapter:
         raise HTTPException(404, "章节不存在")
     return chapter
+
+
+async def require_admin(
+    user: User = Depends(get_current_user),
+) -> User:
+    """要求管理员角色"""
+    if not user.is_admin:
+        raise HTTPException(403, "需要管理员权限")
+    return user
