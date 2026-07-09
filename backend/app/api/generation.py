@@ -246,7 +246,11 @@ async def _generate_single_chapter(db: AsyncSession, project: NovelProject, mode
     ledger.unit_price_input = unit_price_input
     ledger.unit_price_output = unit_price_output
     ledger.cost_usd = cost_usd
-    ledger.cost_cny = None
+    # CNY 成本：使用 config 中的 DeepSeek 人民币单价（可环境变量覆盖）
+    price_input_cny = settings.deepseek_price_input_per_million
+    price_output_cny = settings.deepseek_price_output_per_million
+    cost_cny = round((input_tokens / 1_000_000 * price_input_cny) + (output_tokens / 1_000_000 * price_output_cny), 4)
+    ledger.cost_cny = cost_cny
     ledger.status = "settled"
     ledger.settled_at = datetime.now(timezone.utc)
 

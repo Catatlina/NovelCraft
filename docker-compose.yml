@@ -61,6 +61,11 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.tasks.pipeline.celery_app inspect ping -d celery@$HOSTNAME 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   db:
     image: pgvector/pgvector:pg16
