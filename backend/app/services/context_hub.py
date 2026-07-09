@@ -339,6 +339,25 @@ async def index_world_setting(
     return count
 
 
+async def rebuild_world_setting_embeddings(
+    db: AsyncSession, project: NovelProject
+) -> int:
+    """重建项目的世界观 embeddings：从项目字段重新分块并生成向量。
+
+    用于 world_setting_embeddings.py 的 /rebuild 端点，
+    在用户更新世界观内容后重建索引。
+    """
+    parts: list[str] = []
+    for field in ("world_setting", "power_system", "world_rules"):
+        val = getattr(project, field, None)
+        if val and val.strip():
+            parts.append(val.strip())
+    if not parts:
+        return 0
+    full_text = "\n\n".join(parts)
+    return await index_world_setting(db, project.id, full_text)
+
+
 def _split_text_into_chunks(text: str, chunk_size: int = 512) -> list[str]:
     """将长文本按 chunk_size 分块，尽量在自然断句处切分。
 
