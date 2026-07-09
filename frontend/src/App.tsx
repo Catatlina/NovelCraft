@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import AppLayout from '@/components/layout/AppLayout';
+import AppLayout from '@/components/layout/AppLayoutV2';
 import LoadingSpinner from '@/components/shared/LoadingSpinner';
 import { useAuthStore } from '@/store/authStore';
 
@@ -8,13 +8,13 @@ import { useAuthStore } from '@/store/authStore';
  * 懒加载页面组件
  * 各页面模块将在此被动态导入，减少首屏包体积
  */
-const Dashboard = lazy(() => import('@/pages/Dashboard'));
+const Dashboard = lazy(() => import('@/pages/DashboardV2'));
 const WritingWorkspace = lazy(() => import('@/pages/WritingWorkspaceV2'));
 const ForeshadowBoard = lazy(() => import('@/pages/ForeshadowBoard'));
 const QualityDashboard = lazy(() => import('@/pages/QualityDashboard'));
 const TrendAnalysis = lazy(() => import('@/pages/TrendAnalysis'));
 const Settings = lazy(() => import('@/pages/Settings'));
-const Login = lazy(() => import('@/pages/Login'));
+const Login = lazy(() => import('@/pages/LoginV2'));
 const TranslatePage = lazy(() => import('@/pages/TranslatePage'));
 const AnalyticsDashboard = lazy(() => import('@/pages/AnalyticsDashboard'));
 const QuickStart = lazy(() => import('@/pages/QuickStart'));
