@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.db.database import get_db
 from app.db.models import PromptTemplate, User
+from app.services.prompt_registry import invalidate_cache
 
 router = APIRouter(prefix="/api/v1/admin/prompts", tags=["admin-prompts"])
 
@@ -79,6 +80,7 @@ async def create_prompt(
     )
     db.add(tpl)
     await db.commit()
+    await invalidate_cache()
     return {"id": str(tpl.id), "name": tpl.name, "version": tpl.version,
             "status": "created"}
 
@@ -100,6 +102,7 @@ async def update_prompt(
         if val is not None:
             setattr(tpl, field, val)
     await db.commit()
+    await invalidate_cache()
     return {"status": "updated"}
 
 
@@ -124,4 +127,5 @@ async def activate_prompt(
     )
     tpl.is_active = True
     await db.commit()
+    await invalidate_cache()
     return {"name": tpl.name, "version": tpl.version, "status": "activated"}
