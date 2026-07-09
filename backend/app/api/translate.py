@@ -15,6 +15,7 @@ from app.services.prompts import (
     build_novel_translate_messages,
     parse_novel_translate_response,
 )
+from app.services.prompt_registry import load_template
 
 router = APIRouter(prefix="/api/v1/translate", tags=["translate"])
 
@@ -75,6 +76,7 @@ async def translate_chapter(
         content=content,
         target_platform=req.target_platform,
         glossary=req.glossary,
+        template=await load_template(db, "novel-translate"),
     )
     try:
         r = await chat_completion(messages, temperature=0.3, max_tokens=16384)

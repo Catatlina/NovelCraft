@@ -125,11 +125,14 @@ async def _do_7d_review(
     previous_review: dict | None = None,
 ) -> dict:
     """执行7维审查，可选历史对比。"""
+    from app.services.prompt_registry import load_template
+    tpl = await load_template(db, "novel-review")
     messages = build_novel_review_messages(
         chapter_content=content,
         chapter_outline=outline,
         context_summary=ctx,
         previous_review=previous_review,
+        template=tpl,
     )
     try:
         r = await chat_completion(messages, temperature=0.3)

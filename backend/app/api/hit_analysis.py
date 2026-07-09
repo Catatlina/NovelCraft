@@ -39,9 +39,12 @@ async def analyze_hit_potential(
     user: User = Depends(get_current_user),
 ):
     """评估作品爆款潜力 — 调用 novel-analyze 引擎"""
+    from app.services.prompt_registry import load_template
+    tpl = await load_template(db, "novel-analyze")
     messages = build_novel_analyze_messages(
         title=req.title,
         chapters_text=req.first_chapter,
+        template=tpl,
     )
     try:
         r = await chat_completion(messages, temperature=0.3)
@@ -64,6 +67,7 @@ async def batch_scan_platforms(
     messages = build_novel_scan_messages(
         platforms=target_platforms,
         raw_data="请基于你的知识库，分析上述平台当前热门趋势。",
+        template=await load_template(db, "novel-scan"),
     )
     try:
         r = await chat_completion(messages, temperature=0.5, max_tokens=3000)

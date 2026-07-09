@@ -79,13 +79,15 @@ async def analyze_scan_data(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """
-    用 LLM 解析榜单原始数据，提取结构化书籍信息。
+    """用 LLM 解析榜单原始数据，提取结构化书籍信息。
     对接 novel-scan Prompt 引擎。
     """
+    from app.services.prompt_registry import load_template
+    tpl = await load_template(db, "novel-scan")
     messages = build_novel_scan_messages(
         platforms=req.platforms,
         raw_data=req.raw_data,
+        template=tpl,
     )
     try:
         r = await chat_completion(messages, temperature=0.3)
