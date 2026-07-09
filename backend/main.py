@@ -38,6 +38,7 @@ from app.api import (
     world_rules,
     world_setting_embeddings,
     user_ai_settings,
+    prompt_admin,
 )
 from app.core.config import settings
 from app.core.security import hash_password
@@ -179,6 +180,7 @@ app.include_router(search.router)                      # Phase 9: 全局搜索
 app.include_router(short_story.router)                 # Phase 3: 短篇生成
 app.include_router(translate.router)                   # Phase 3: 翻译出海
 app.include_router(user_ai_settings.router)                # 用户级 AI 配置
+app.include_router(prompt_admin.router)                     # P1-1: Prompt 模板管理
 
 
 @app.get("/health")

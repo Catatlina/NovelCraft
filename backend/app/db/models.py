@@ -432,3 +432,19 @@ class AnalyticsEvent(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     project: Mapped["NovelProject"] = relationship(back_populates="analytics_events")
+
+
+class PromptTemplate(Base):
+    """Prompt 模板版本化存储 — 支持在线编辑/回滚/A/B测试 (P1-1)"""
+    __tablename__ = "prompt_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    user_prompt_template: Mapped[str] = mapped_column(Text, default="")
+    temperature: Mapped[float] = mapped_column(Float, default=0.9)
+    max_tokens: Mapped[int] = mapped_column(Integer, default=4000)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

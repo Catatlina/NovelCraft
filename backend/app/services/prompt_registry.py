@@ -1,164 +1,141 @@
 """
-Prompt 版本注册中心 — 管理 Prompt 版本, 记录优化历史, 驱动质量反馈闭环。
+Prompt 版本注册中心 — 从 DB prompt_templates 表加载，
+支持运行时热更新、在线编辑、版本回滚。
 
-Phase 6: 将 PromptOptimizationLog 模型从"只记录"升级为"驱动选择"。
-每次生成时记录使用的 Prompt 版本; 质量审查后若分差显著 (>2分),
-自动记录优化建议到日志表, 供后续 A/B 测试使用。
+v2: 从进程内 dict 升级为 DB 驱动 (P1-1)
 """
 from __future__ import annotations
 
+import logging
 import uuid
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import PromptOptimizationLog
+logger = logging.getLogger(__name__)
 
 
-@dataclass
-class PromptVersion:
-    """单个 Prompt 的版本快照。"""
-    name: str
-    version: int = 1
-    temperature: float = 0.9
-    max_tokens: int = 4000
-    description: str = ""
-    quality_score: float | None = None  # 该版本的平均质量分
+class TemplateRef:
+    """Prompt 模板的运行时引用"""
+    __slots__ = ("name", "version", "system_prompt", "user_prompt_template",
+                 "temperature", "max_tokens", "description")
+
+    def __init__(self, name: str, version: int, system_prompt: str,
+                 user_prompt_template: str = "", temperature: float = 0.9,
+                 max_tokens: int = 4000, description: str = ""):
+        self.name = name
+        self.version = version
+        self.system_prompt = system_prompt
+        self.user_prompt_template = user_prompt_template
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.description = description
 
 
-class PromptRegistry:
-    """单例: 管理所有 Prompt 的版本注册、查询、优化记录。
+# ── 硬编码降级副本（DB 不可用时使用） ──
+_HARDCODED_FALLBACKS: dict[str, TemplateRef] = {
+    "novel-write": TemplateRef("novel-write", 0,
+        "你是一名专业网络小说写手，正在为付费连载平台撰写正文。"
+        "你必须严格遵守下面提供的上下文设定。",
+        "{context_json}", 0.9, 4000, "novel-write 降级"),
+    "novel-review": TemplateRef("novel-review", 0,
+        "你是一名资深编辑，需要从7个维度审查小说章节质量。",
+        "请审查以下章节：\n{content}", 0.3, 4000, "novel-review 降级"),
+    "novel-translate": TemplateRef("novel-translate", 0,
+        "你是一名专业文学翻译，需要将中文小说翻译为目标语言。",
+        "Title: {title}\nContent: {content}\nPlatform: {platform}", 0.3, 16384, "novel-translate 降级"),
+    "novel-deslop": TemplateRef("novel-deslop", 0,
+        "你是一名专业编辑，需要去除AI写作痕迹，使文本更自然。",
+        "{content}", 0.7, 4000, "novel-deslop 降级"),
+    "novel-scan": TemplateRef("novel-scan", 0,
+        "你是一名市场分析师，需要分析网络小说榜单趋势。",
+        "{scan_data}", 0.3, 4000, "novel-scan 降级"),
+    "novel-analyze": TemplateRef("novel-analyze", 0,
+        "你是一名文学评论家，需要深度分析爆款小说的成功要素。",
+        "{analysis_target}", 0.3, 4000, "novel-analyze 降级"),
+    "novel-short-write": TemplateRef("novel-short-write", 0,
+        "你是一名短篇小说作家，需要创作完整的短篇故事。",
+        "{prompt}", 0.9, 16384, "novel-short-write 降级"),
+}
 
-    使用方式:
-        registry = get_prompt_registry()
-        registry.register("novel-write", version=1, temperature=0.9)
-        v = registry.get("novel-write")  # → PromptVersion
-        await registry.log_optimization(db, project_id, "novel-write", old, new, reason)
-    """
 
-    def __init__(self):
-        self._prompts: dict[str, PromptVersion] = {}
-
-    def register(
-        self,
-        name: str,
-        *,
-        version: int = 1,
-        temperature: float = 0.9,
-        max_tokens: int = 4000,
-        description: str = "",
-        quality_score: float | None = None,
-    ) -> PromptVersion:
-        pv = PromptVersion(
-            name=name,
-            version=version,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            description=description,
-            quality_score=quality_score,
+async def _load_from_db(db: AsyncSession, name: str) -> TemplateRef | None:
+    """从 DB 加载单一命名的活跃模板"""
+    try:
+        from app.db.models import PromptTemplate
+        result = await db.execute(
+            select(PromptTemplate)
+            .where(PromptTemplate.name == name, PromptTemplate.is_active == True)
+            .order_by(PromptTemplate.version.desc())
+            .limit(1)
         )
-        self._prompts[name] = pv
-        return pv
+        row = result.scalar_one_or_none()
+        if row:
+            return TemplateRef(
+                name=row.name, version=row.version,
+                system_prompt=row.system_prompt,
+                user_prompt_template=row.user_prompt_template or "",
+                temperature=row.temperature or 0.9,
+                max_tokens=row.max_tokens or 4000,
+                description=row.description or "",
+            )
+    except Exception:
+        logger.warning("prompt_registry: DB load failed for %s, using fallback", name,
+                       exc_info=True)
+    return None
 
-    def get(self, name: str) -> PromptVersion | None:
-        return self._prompts.get(name)
 
-    def get_or_default(self, name: str) -> PromptVersion:
-        return self._prompts.get(name) or PromptVersion(name=name)
+async def load_template(db: AsyncSession, name: str) -> TemplateRef:
+    """加载指定 Prompt 的活跃版本（DB 优先 → 硬编码降级）"""
+    db_copy = await _load_from_db(db, name)
+    if db_copy:
+        return db_copy
+    fallback = _HARDCODED_FALLBACKS.get(name)
+    if fallback:
+        return fallback
+    return TemplateRef(name, 0, "", "", 0.9, 4000, "empty fallback")
 
-    def list_all(self) -> dict[str, PromptVersion]:
-        return dict(self._prompts)
 
-    async def log_optimization(
-        self,
-        db: AsyncSession,
-        project_id: uuid.UUID,
-        prompt_name: str,
-        params_before: dict | None,
-        params_after: dict | None,
-        reason: str,
-        quality_impact: float | None = None,
-    ) -> PromptOptimizationLog:
-        """写入优化日志并更新注册中心的质量分。"""
-        entry = PromptOptimizationLog(
-            id=uuid.uuid4(),
-            project_id=project_id,
-            prompt_name=prompt_name,
-            params_before=params_before,
-            params_after=params_after,
-            reason=reason,
-            quality_impact=quality_impact,
-            applied_at=datetime.now(timezone.utc),
+async def load_all_active(db: AsyncSession) -> dict[str, TemplateRef]:
+    """批量加载所有活跃模板"""
+    try:
+        from app.db.models import PromptTemplate
+        from sqlalchemy import and_, func as sa_func
+        sub = (
+            select(
+                PromptTemplate.name,
+                sa_func.max(PromptTemplate.version).label("max_ver"))
+            .where(PromptTemplate.is_active == True)
+            .group_by(PromptTemplate.name)
+            .subquery()
         )
-        db.add(entry)
-
-        # 更新注册中心内的质量分 (用于同进程内后续决策)
-        if quality_impact is not None and prompt_name in self._prompts:
-            pv = self._prompts[prompt_name]
-            if pv.quality_score is None:
-                pv.quality_score = quality_impact
-            else:
-                # 指数移动平均, 近期权重 0.3
-                pv.quality_score = pv.quality_score * 0.7 + quality_impact * 0.3
-
-        return entry
-
-    async def log_auto_optimization(
-        self,
-        db: AsyncSession,
-        project_id: uuid.UUID,
-        prompt_name: str,
-        previous_score: float,
-        new_score: float,
-        context: str = "",
-    ) -> PromptOptimizationLog | None:
-        """质量审查后自动记录: 当分差 >= 2 时写入优化日志。
-
-        返回创建的日志条目, 或 None (分差不足以记录)。
-        """
-        diff = new_score - previous_score
-        if abs(diff) < 2.0:
-            return None
-
-        direction = "提升" if diff > 0 else "下降"
-        reason = f"自动: 质量审查分从 {previous_score:.1f} {direction}到 {new_score:.1f} (Δ{diff:+.1f})"
-        if context:
-            reason += f" — {context[:200]}"
-
-        return await self.log_optimization(
-            db=db,
-            project_id=project_id,
-            prompt_name=prompt_name,
-            params_before={"quality_score": previous_score},
-            params_after={"quality_score": new_score},
-            reason=reason,
-            quality_impact=diff,
+        result = await db.execute(
+            select(PromptTemplate).join(
+                sub,
+                and_(
+                    PromptTemplate.name == sub.c.name,
+                    PromptTemplate.version == sub.c.max_ver,
+                )
+            )
         )
+        loaded = {}
+        for row in result.scalars().all():
+            loaded[row.name] = TemplateRef(
+                name=row.name, version=row.version,
+                system_prompt=row.system_prompt,
+                user_prompt_template=row.user_prompt_template or "",
+                temperature=row.temperature or 0.9,
+                max_tokens=row.max_tokens or 4000,
+                description=row.description or "",
+            )
+        return loaded or dict(_HARDCODED_FALLBACKS)
+    except Exception:
+        logger.warning("prompt_registry: bulk load failed, using all fallbacks",
+                       exc_info=True)
+        return dict(_HARDCODED_FALLBACKS)
 
 
-# 进程级单例
-_registry: PromptRegistry | None = None
-
-
-def get_prompt_registry() -> PromptRegistry:
-    global _registry
-    if _registry is None:
-        _registry = PromptRegistry()
-        # 注册默认 Prompt 版本
-        _registry.register("novel-write", version=1, temperature=0.9, max_tokens=4000,
-                           description="novel-write v1: 基础续写")
-        _registry.register("novel-review", version=1, temperature=0.3, max_tokens=4000,
-                           description="novel-review v1: 7维审查")
-        _registry.register("novel-translate", version=1, temperature=0.3, max_tokens=16384,
-                           description="novel-translate v1: 翻译出海")
-        _registry.register("novel-deslop", version=1, temperature=0.7, max_tokens=4000,
-                           description="novel-deslop v1: 去AI味")
-        _registry.register("novel-scan", version=1, temperature=0.3, max_tokens=4000,
-                           description="novel-scan v1: 扫榜分析")
-        _registry.register("novel-analyze", version=1, temperature=0.3, max_tokens=4000,
-                           description="novel-analyze v1: 拆文学习")
-        _registry.register("novel-short-write", version=1, temperature=0.9, max_tokens=16384,
-                           description="novel-short-write v1: 短篇生成")
-    return _registry
+async def invalidate_cache(name: str) -> None:
+    """通知缓存失效（无状态 registry 无需操作，预留接口）"""
+    pass
