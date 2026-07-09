@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     max_chapter_tokens: int = 4000
     context_prev_chapters: int = 5
 
+    # DeepSeek 计费单价（人民币 ¥/百万 tokens，可通过环境变量覆盖）
+    deepseek_price_input_per_million: float = 1.0
+    deepseek_price_output_per_million: float = 2.0
+    deepseek_price_cache_hit_per_million: float = 0.25
+
     # Auth — 生产环境必须通过环境变量覆盖
     secret_key: str = ""
     jwt_algorithm: str = "HS256"
