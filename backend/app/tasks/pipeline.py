@@ -143,6 +143,24 @@ async def enqueue_batch_generation(
     return batch_id
 
 
+async def _get_active_batch_task(db: AsyncSession, project_id: str, batch_id: str):
+    from app.db.models import GenerationTask
+
+    result = await db.execute(
+        select(GenerationTask).where(
+            GenerationTask.project_id == project_id,
+            GenerationTask.type == "batch_chapter",
+            GenerationTask.progress["batch_id"].astext == batch_id,
+        ).order_by(GenerationTask.created_at.desc()).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _is_batch_cancelled(db: AsyncSession, project_id: str, batch_id: str) -> bool:
+    task = await _get_active_batch_task(db, project_id, batch_id)
+    return bool(task and (task.cancel_requested or task.status == "cancelled"))
+
+
 # ============================================================
 # Phase 4.1: Idea 选题流水线
 # ============================================================
@@ -560,6 +578,9 @@ def chapter_queue(self, project_id: str, batch_id: str):
 
     async def _run():
         async with AsyncSessionLocal() as db:
+            if await _is_batch_cancelled(db, project_id, batch_id):
+                return {"status": "cancelled", "batch_id": batch_id}
+
             project = await db.get(NovelProject, project_id)
             if not project:
                 raise ValueError(f"项目 {project_id} 不存在，批次 {batch_id} 终止")
@@ -580,6 +601,9 @@ def chapter_queue(self, project_id: str, batch_id: str):
                 # 由外层 _run_async 冒泡给 Celery，chain 同样会正确停止
                 await _mark_batch_failed(project_id, batch_id, str(e.detail))
                 raise self.retry(exc=e, countdown=60)
+
+            if await _is_batch_cancelled(db, project_id, batch_id):
+                return {"status": "cancelled", "batch_id": batch_id}
 
             # P0-3 fix: 批量路径同样自动派发质量审查，与单章接口行为保持一致
             celery_app.send_task("review_queue", args=[str(chapter.id)])

@@ -105,9 +105,9 @@ services:
   flower:
     image: mher/flower:2.0
     container_name: novelcraft-flower
-    command: ["celery", "--broker=redis://:${REDIS_PASSWORD}@redis:6379/0", "flower", "--port=5555"]
+    command: ["celery", "--broker=redis://:${REDIS_PASSWORD}@redis:6379/0", "flower", "--port=5555", "--basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}"]
     ports:
-      - "5555:5555"
+      - "127.0.0.1:5555:5555"
     depends_on:
       redis:
         condition: service_healthy

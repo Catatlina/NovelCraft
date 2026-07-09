@@ -12,7 +12,7 @@ from secrets import token_urlsafe
 from app.core.security import (
     create_access_token,
     create_refresh_token,
-    decode_token_with_type,
+    decode_token_payload,
     hash_password,
     verify_password,
 )
@@ -114,6 +114,7 @@ async def refresh_token(
     response: Response,
     req: RefreshRequest | None = None,
     refresh_token: str | None = Cookie(None),
+    db: AsyncSession = Depends(get_db),
 ):
     """用 refresh token 换取新的 access token。
 
@@ -124,10 +125,31 @@ async def refresh_token(
     token = refresh_token or (req.refresh_token if req else None)
     if not token:
         raise HTTPException(401, "未提供 refresh token")
-    user_id = decode_token_with_type(token, "refresh")
+
+    payload = decode_token_payload(token, "refresh")
+    if not payload:
+        raise HTTPException(401, "refresh token 无效或已过期")
+
+    user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(401, "refresh token 无效或已过期")
-    _set_auth_cookies(response, user_id)
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user or not user.is_active:
+        response.delete_cookie("access_token")
+        response.delete_cookie("refresh_token")
+        response.delete_cookie("csrf_token")
+        raise HTTPException(401, "用户不存在或已禁用")
+
+    if payload.get("tv", 0) != user.token_version:
+        response.delete_cookie("access_token")
+        response.delete_cookie("refresh_token")
+        response.delete_cookie("csrf_token")
+        raise HTTPException(401, "refresh token 已失效，请重新登录")
+
+    _set_auth_cookies(response, str(user.id), user.token_version)
     return {"status": "ok"}
 
 

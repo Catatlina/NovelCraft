@@ -38,9 +38,11 @@ let refreshInFlight: Promise<boolean> | null = null;
 /** 用 httpOnly cookie 里的 refresh_token 换取新的 access_token；成功返回 true。*/
 async function tryRefreshToken(): Promise<boolean> {
   if (!refreshInFlight) {
+    const csrf = getCookie('csrf_token');
     refreshInFlight = fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
+      headers: csrf ? { 'X-CSRF-Token': csrf } : undefined,
     })
       .then((res) => res.ok)
       .catch(() => false)

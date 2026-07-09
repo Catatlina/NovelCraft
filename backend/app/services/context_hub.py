@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -354,6 +354,9 @@ async def rebuild_world_setting_embeddings(
             parts.append(val.strip())
     if not parts:
         return 0
+    await db.execute(
+        delete(WorldSettingEmbedding).where(WorldSettingEmbedding.project_id == project.id)
+    )
     full_text = "\n\n".join(parts)
     return await index_world_setting(db, project.id, full_text)
 

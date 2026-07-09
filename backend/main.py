@@ -97,11 +97,11 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     """
 
     SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-    EXEMPT_PATHS = {"/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh"}
+    EXEMPT_PATHS = {"/api/v1/auth/login", "/api/v1/auth/register"}
 
     async def dispatch(self, request, call_next):
         if request.method not in self.SAFE_METHODS and request.url.path not in self.EXEMPT_PATHS:
-            if request.cookies.get("access_token"):
+            if request.cookies.get("access_token") or request.cookies.get("refresh_token"):
                 cookie_token = request.cookies.get("csrf_token")
                 header_token = request.headers.get("X-CSRF-Token")
                 if not cookie_token or not header_token or cookie_token != header_token:

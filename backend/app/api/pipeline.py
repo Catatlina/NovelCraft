@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
 
 class BatchGenerateRequest(BaseModel):
     project_id: str
-    chapter_count: int = 10
+    chapter_count: int = Field(default=10, ge=1, le=50)
 
 
 class IdeaPipelineRequest(BaseModel):
@@ -210,5 +210,6 @@ async def cancel_task(task_id: str, db: AsyncSession = Depends(get_db),
     if task.project_id not in {p[0] for p in user_projects}:
         raise HTTPException(404, "任务不存在")
     task.status = "cancelled"
+    task.cancel_requested = True
     await db.commit()
     return {"status": "cancelled"}

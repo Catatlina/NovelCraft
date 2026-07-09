@@ -81,6 +81,23 @@ def decode_token_with_type(token: str, expected_type: str = "access") -> str | N
         return None
 
 
+def decode_token_payload(token: str, expected_type: str | None = None) -> dict | None:
+    """解码 JWT 并返回完整 payload。
+
+    refresh 接口需要校验 token_version、jti 和用户状态，不能只拿 sub 后
+    直接签发新 token。
+    """
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+        if expected_type is not None and payload.get("type") != expected_type:
+            return None
+        if _is_jti_revoked(payload.get("jti")):
+            return None
+        return payload
+    except JWTError:
+        return None
+
+
 def _is_jti_revoked(jti: str | None) -> bool:
     """检查 jti 是否在黑名单中; jti 缺失时返回 False"""
     if not jti:
@@ -89,4 +106,4 @@ def _is_jti_revoked(jti: str | None) -> bool:
         from app.core.token_blacklist import is_revoked
         return is_revoked(jti)
     except Exception:
-        return False  # Redis 不可用时放行
+        return settings.token_blacklist_fail_closed

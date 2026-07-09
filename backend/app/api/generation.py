@@ -28,6 +28,12 @@ from app.services.deepseek_client import DeepSeekError, chat_completion
 router = APIRouter(prefix="/api/v1/projects", tags=["generation"])
 
 
+def _count_content_chars(content: str) -> int:
+    """商业网文口径的字数统计：去除空白字符后按字符计数。"""
+    import re
+    return len(re.sub(r"\s+", "", content or ""))
+
+
 @router.post("/{project_id}/chapters/generate", response_model=ChapterOut)
 @ai_limiter.limit("10/minute")
 async def generate_chapter(
@@ -183,7 +189,7 @@ async def _generate_single_chapter(db: AsyncSession, project: NovelProject, mode
 
     chapter.title = parsed["title"]
     chapter.content = parsed["content"]
-    chapter.word_count = len(parsed["content"])
+    chapter.word_count = _count_content_chars(parsed["content"])
     chapter.summary = parsed["summary"]
     chapter.status = "draft"
 

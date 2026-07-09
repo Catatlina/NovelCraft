@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     deepseek_price_cache_hit_per_million: float = 0.25
 
     # Auth — 生产环境必须通过环境变量覆盖
+    environment: str = "development"
     secret_key: str = ""
     jwt_algorithm: str = "HS256"
     jwt_access_expire_minutes: int = 15
@@ -58,6 +59,8 @@ class Settings(BaseSettings):
             raise ValueError("ADMIN_PASSWORD 未设置，请在 .env 中配置")
         if not self.database_url:
             raise ValueError("DATABASE_URL 未设置，请在 .env 中配置数据库连接字符串")
+        if self.environment.lower() == "production" and not self.cookie_secure:
+            raise ValueError("生产环境必须设置 COOKIE_SECURE=true")
         # 启动时校验加密密钥格式（非空且为合法 Fernet key）
         if self.account_encryption_key:
             try:
@@ -76,6 +79,7 @@ class Settings(BaseSettings):
     # 如果前后端跨站部署且必须走 cookie，需要 https + samesite=none + secure=true。
     cookie_secure: bool = False
     cookie_samesite: str = "lax"
+    token_blacklist_fail_closed: bool = True
 
 
 settings = Settings()
