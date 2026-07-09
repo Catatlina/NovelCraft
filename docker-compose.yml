@@ -19,6 +19,12 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8100/health || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
   web:
     build:
@@ -44,7 +50,7 @@ services:
     # -Q 显式声明监听的队列：task_routes 把任务路由到这5个具名队列，
     # 若不显式声明，Celery worker 默认只消费 "celery" 队列，会导致这些任务永远不被执行（P0-1 修复）。
     # 保留 celery 默认队列兜底，防止未来新增任务忘记加路由规则时被静默丢弃。
-    command: celery -A app.tasks.pipeline.celery_app worker --loglevel=info -c 2 -Q idea,outline,chapter,review,publish,celery
+    command: celery -A app.tasks.pipeline.celery_app worker --loglevel=info --autoscale=8,2 -Q idea,outline,chapter,review,publish,celery --time-limit=300 --soft-time-limit=240
     env_file: .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-novelcraft}:${DB_PASSWORD}@db:5432/${DB_NAME:-novelcraft}

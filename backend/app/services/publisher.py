@@ -81,9 +81,12 @@ PLATFORM_CONFIGS = {
 
 
 async def publish_chapter_to_platform(
-    chapter_id: str, platform: str, email: str = "", password: str = ""
+    chapter_id: str, platform: str, email: str = "", password: str = "", account_id: str | None = None,
 ) -> dict:
-    """使用 Playwright 自动登录并发布章节到指定平台"""
+    """使用 Playwright 自动登录并发布章节到指定平台。
+
+    凭据优先级：account_id（从 platform_accounts 表解密）> email/password 参数 > 环境变量。
+    """
     if not HAS_PLAYWRIGHT:
         return {"status": "skipped", "reason": "Playwright 未安装。部署时运行: pip install playwright && playwright install chromium"}
 
@@ -96,6 +99,19 @@ async def publish_chapter_to_platform(
             return {"status": "error", "reason": "章节不存在"}
         title = chapter.title or f"Chapter {chapter.chapter_num}"
         content = chapter.content or ""
+
+        # 优先从 platform_accounts 表解密凭据
+        if account_id:
+            try:
+                from app.db.models import PlatformAccount
+                from app.api.platform_accounts import decrypt_credentials
+                acct = await db.get(PlatformAccount, account_id)
+                if acct and acct.platform == platform:
+                    creds = __import__('json').loads(decrypt_credentials(acct.encrypted_credentials))
+                    email = creds.get("email", "")
+                    password = creds.get("password", "")
+            except Exception:
+                pass  # 解密失败退回 env vars
 
     cfg = PLATFORM_CONFIGS[platform]
     env_prefix = platform.upper().replace("-", "_")
