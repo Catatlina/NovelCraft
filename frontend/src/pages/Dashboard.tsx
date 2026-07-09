@@ -173,9 +173,7 @@ const Dashboard: React.FC = () => {
             <p className="mt-1 text-[13px] text-gray-500 dark:text-gray-400">
               {activeProject
                 ? `《${activeProject.title}》当前处于${STATE_LABELS[activeProject.current_state]}阶段`
-                : false
-                  ? '加载项目数据...'
-                  : '创建一本小说开始创作'}
+                : '创建一本小说开始创作'}
             </p>
           </div>
           {activeProject && (
