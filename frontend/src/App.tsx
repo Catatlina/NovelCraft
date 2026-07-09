@@ -10,13 +10,13 @@ import { useAuthStore } from '@/store/authStore';
  */
 const Dashboard = lazy(() => import('@/pages/DashboardV2'));
 const WritingWorkspace = lazy(() => import('@/pages/WritingWorkspaceV2'));
-const ForeshadowBoard = lazy(() => import('@/pages/ForeshadowBoard'));
-const QualityDashboard = lazy(() => import('@/pages/QualityDashboard'));
-const TrendAnalysis = lazy(() => import('@/pages/TrendAnalysis'));
-const Settings = lazy(() => import('@/pages/Settings'));
+const ForeshadowBoard = lazy(() => import('@/pages/ForeshadowBoardV2'));
+const QualityDashboard = lazy(() => import('@/pages/QualityDashboardV2'));
+const TrendAnalysis = lazy(() => import('@/pages/TrendAnalysisV2'));
+const Settings = lazy(() => import('@/pages/SettingsV2'));
 const Login = lazy(() => import('@/pages/LoginV2'));
-const TranslatePage = lazy(() => import('@/pages/TranslatePage'));
-const AnalyticsDashboard = lazy(() => import('@/pages/AnalyticsDashboard'));
+const TranslatePage = lazy(() => import('@/pages/TranslatePageV2'));
+const AnalyticsDashboard = lazy(() => import('@/pages/AnalyticsDashboardV2'));
 const QuickStart = lazy(() => import('@/pages/QuickStart'));
 const ConfigCenter = lazy(() => import('@/pages/ConfigCenter'));
 
