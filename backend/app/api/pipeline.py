@@ -1,4 +1,4 @@
-"""批量生成 + 调度监控 + 三级流水线 API (Phase 4)"""
+"""批量生成 + 调度监控 + 流水线 API (Phase 4)"""
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -12,7 +12,6 @@ from app.tasks.pipeline import (
     enqueue_batch_generation,
     idea_pipeline_task,
     outline_pipeline_task,
-    publish_pipeline_task,
 )
 
 router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
@@ -39,13 +38,6 @@ class OutlinePipelineRequest(BaseModel):
     world_setting: str = ""
     target_words: int = Field(default=1000000, ge=100000, le=10000000)
     outline_count: int = Field(default=3, ge=1, le=10)
-
-
-class PublishPipelineRequest(BaseModel):
-    project_id: str
-    target_platforms: list[str]
-    chapters: list[int] | None = None
-    glossary: dict | None = None
 
 
 # -----------------------------------------------------------
@@ -182,66 +174,7 @@ async def get_outline_result(
 
 
 # -----------------------------------------------------------
-# Publish Pipeline
-# -----------------------------------------------------------
-
-
-@router.post("/publish")
-async def trigger_publish_pipeline(
-    req: PublishPipelineRequest,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """触发发布流水线：选择章节 → 翻译 → 格式适配 → 发布 → 验证"""
-    await get_user_project(req.project_id, user, db)
-    task_result = publish_pipeline_task.delay(
-        req.project_id, req.target_platforms, req.chapters, req.glossary,
-    )
-    return {
-        "task_id": task_result.id,
-        "project_id": req.project_id,
-        "platforms": req.target_platforms,
-        "chapters": req.chapters or "全部草稿章节",
-        "status": "queued",
-    }
-
-
-@router.get("/publish/{project_id}/result")
-async def get_publish_result(
-    project_id: str,
-    limit: int = Query(default=5, ge=1, le=50),
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """查询发布流水线的最新结果"""
-    await get_user_project(project_id, user, db)
-    result = await db.execute(
-        select(GenerationTask)
-        .where(
-            GenerationTask.project_id == project_id,
-            GenerationTask.type == "publish_pipeline",
-        )
-        .order_by(GenerationTask.created_at.desc())
-        .limit(limit)
-    )
-    tasks = result.scalars().all()
-    return {
-        "project_id": project_id,
-        "tasks": [
-            {
-                "id": str(t.id),
-                "status": t.status,
-                "progress": t.progress,
-                "error_log": t.error_log,
-                "created_at": str(t.created_at),
-            }
-            for t in tasks
-        ],
-    }
-
-
-# -----------------------------------------------------------
-# Pipeline Status & Cancel (existing)
+# Pipeline Status & Cancel
 # -----------------------------------------------------------
 
 
