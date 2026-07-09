@@ -19,6 +19,7 @@ from app.db.database import get_db
 from app.db.models import NovelChapter, NovelProject, TokenLedger, User
 from app.services.context_hub import assemble_context
 from app.services.deepseek_client import DeepSeekError, chat_completion
+from app.services.novel_agents import get_novel_agents
 from app.services.prompts import build_novel_write_messages
 
 router = APIRouter(prefix="/api/v1/projects", tags=["quick-start"])
@@ -471,6 +472,67 @@ async def imitate_novel(
         return {"project_id":str(project.id), "title":title, "analysis":analysis, "imitation":chapter}
     except HTTPException: raise
     except Exception as e: raise HTTPException(502, f"拆文仿写失败(step={step}): {str(e)[:200]}")
+
+
+class AgentRequest(BaseModel):
+    idea: str = Field(..., min_length=5)
+    genre: str = "修真"
+    extra: str = ""
+    chapters: int = Field(default=10, ge=3, le=50)
+
+
+@router.post("/agents")
+async def multi_agent_pipeline(
+    req: AgentRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """多 Agent 协作流水线：
+    Chief Planner→Lead Writer→Continuity Checker→Quality Editor
+    参考: autonovel + AI_NovelGenerator"""
+    agents = get_novel_agents(db)
+    result = await agents.run(req.idea, req.genre, req.extra, req.chapters)
+
+    # Save to DB
+    plan = result["plan"]
+    project = NovelProject(
+        id=_uuid.uuid4(), user_id=user.id,
+        title=plan.title, genre=plan.genre or req.genre, status="writing",
+        overall_outline=plan.overall_outline,
+        description=plan.synopsis,
+        characters_json=plan.characters,
+        target_words=1_000_000,
+        total_chapters=len(result["chapters"]),
+        total_words=sum(c.get("word_count", 0) for c in result["chapters"]),
+    )
+    db.add(project); await db.flush()
+
+    saved = []
+    for c in result["chapters"]:
+        ch = NovelChapter(
+            id=_uuid.uuid4(), project_id=project.id,
+            chapter_num=c["chapter_num"], title=c["title"],
+            content=c["content"], summary=c["summary"],
+            word_count=c["word_count"], status="draft",
+        )
+        db.add(ch)
+        saved.append({"chapter_num": c["chapter_num"], "title": c["title"],
+                       "word_count": c["word_count"], "target_met": c["target_met"],
+                       "issues": len(c.get("issues", []))})
+    await db.commit()
+
+    return {
+        "project_id": str(project.id),
+        "title": plan.title,
+        "synopsis": plan.synopsis,
+        "characters": plan.characters[:10],
+        "chapters": saved,
+        "stats": {
+            "chapters": len(result["chapters"]),
+            "issues_found": result["issues_found"],
+            "revisions": result["revisions"],
+        },
+    }
 
 
 def _extract_section(text: str, header: str, max_len: int = 1000) -> str:
