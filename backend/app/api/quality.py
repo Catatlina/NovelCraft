@@ -144,7 +144,7 @@ async def _do_7d_review(
     # 持久化审查结果
     low_score_dims: list[str] = []
     try:
-        ch_uuid = _uuid.UUID(chapter_id)  # P1-7: 显式类型转换
+        ch_uuid = _uuid.UUID(chapter_id)
         for dim, dd in data.get("dimensions", {}).items():
             db.add(QualityReview(
                 chapter_id=ch_uuid,
@@ -154,16 +154,36 @@ async def _do_7d_review(
             ))
         ch = await db.get(NovelChapter, ch_uuid)
         if ch:
+            # 记录上次审查看板分数, 用于 Prompt 优化闭环
+            prev_overall = (ch.review_score or {}).get("overall_score") if ch.review_score else None
             ch.review_score = {
                 dim: d.get("score", 0)
                 for dim, d in data.get("dimensions", {}).items()
             }
             ch.review_report = data
             ch.status = "reviewed"
-            await db.flush()  # 让上面新增的 QualityReview 行可被下面的自动重写查询到
+            await db.flush()
 
-            # 商业版安全策略：审查不再自动覆盖正文，只返回需要用户处理的低分维度。
             low_score_dims = await _collect_low_score_dimensions(data)
+
+            # Prompt 优化闭环: 若总分变化 >= 2 分, 自动记录优化日志
+            new_overall = data.get("overall_score")
+            if prev_overall is not None and new_overall is not None:
+                try:
+                    from app.services.prompt_registry import get_prompt_registry
+                    registry = get_prompt_registry()
+                    summary = data.get("summary", "")
+                    await registry.log_auto_optimization(
+                        db=db,
+                        project_id=ch.project_id,
+                        prompt_name="novel-review",
+                        previous_score=float(prev_overall),
+                        new_score=float(new_overall),
+                        context=f"7维审查对比 (ch={ch.chapter_num}) - {summary}",
+                    )
+                except Exception:
+                    pass  # 优化日志失败不影响审查主流程
+
         await db.commit()
     except (ValueError, AttributeError):
         pass

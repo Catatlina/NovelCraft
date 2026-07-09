@@ -127,6 +127,18 @@ async def _generate_single_chapter(db: AsyncSession, project: NovelProject, mode
 
     # 2) 长耗时操作：不持有项目行锁。
     context = await context_hub.assemble_context(db, project.id, target_chapter_num)
+
+    # Prompt 版本跟踪: 记录当前使用的 Prompt 版本参数
+    from app.services.prompt_registry import get_prompt_registry
+    registry = get_prompt_registry()
+    pv = registry.get("novel-write")
+    prompt_params = {
+        "version": pv.version if pv else 1,
+        "temperature": pv.temperature if pv else 0.9,
+        "max_tokens": pv.max_tokens if pv else 4000,
+        "mode": mode,
+    }
+
     messages = prompts.build_novel_write_messages(context, mode=mode)
 
     try:
@@ -175,12 +187,14 @@ async def _generate_single_chapter(db: AsyncSession, project: NovelProject, mode
     chapter.status = "draft"
 
     # P0-4 fix: 自动创建首版快照，支持后续 diff 回溯到 AI 生成的原版
+    import json as _json
     db.add(ChapterVersion(
         chapter_id=chapter.id,
         version_num=1,
         content=parsed["content"],
         word_count=chapter.word_count,
         created_by="ai",
+        diff_from_prev=_json.dumps(prompt_params, ensure_ascii=False),
     ))
 
     for fs in parsed.get("new_foreshadows", []):
@@ -244,6 +258,8 @@ async def _auto_mark_overdue_foreshadows(db: AsyncSession, project_id: uuid.UUID
         select(ForeshadowPool).where(
             ForeshadowPool.project_id == project_id,
             ForeshadowPool.status == "planted",
+            # 只扫描种植章节距今超过 5 章的伏笔 — 大幅减少百万字级扫描范围
+            ForeshadowPool.planted_chapter <= current_chapter_num - 5,
         )
     )
     for fs in planted_result.scalars().all():

@@ -125,7 +125,7 @@ async def assemble_context(
 
     return {
         "layer_1_overall_outline": project.overall_outline or "",
-        "layer_2_current_arc_outline": _extract_current_arc(project.overall_outline, target_chapter_num),
+        "layer_2_current_arc_outline": _extract_current_arc(project.overall_outline, target_chapter_num, project.chapter_tree),
         "layer_3_characters": project.characters_json or [],
         "layer_4_world_setting_excerpt": world_setting_excerpt,
         "layer_5_open_foreshadows": open_foreshadows,
@@ -373,14 +373,44 @@ def _split_text_into_chunks(text: str, chunk_size: int = 512) -> list[str]:
     return chunks
 
 
-def _extract_current_arc(overall_outline: str | None, target_chapter_num: int) -> str:
+def _extract_current_arc(overall_outline: str | None, target_chapter_num: int, chapter_tree: list | None = None) -> str:
+    """从 chapter_tree JSONB 中精确定位当前卷, 返回该卷的描述。
+
+    chapter_tree 格式: [{"volume": 1, "title": "第一卷·初入江湖", "start_chapter": 1, "end_chapter": 50}, ...]
+    若无 chapter_tree 或 target_chapter_num 未命中任何卷, 降级为总纲截取。
     """
-    过渡实现：从总纲文本里截取"当前卷"相关描述。
-    真正的实现应基于 chapter_tree（JSONB，卷->章节范围映射）精确定位，
-    当前先返回总纲全文的摘要占位，Phase 2 后续迭代补充 chapter_tree 解析逻辑。
-    """
+    if chapter_tree:
+        for volume in chapter_tree:
+            if not isinstance(volume, dict):
+                continue
+            start = volume.get("start_chapter", 0)
+            end = volume.get("end_chapter", 0)
+            if start <= target_chapter_num <= end:
+                title = volume.get("title", "")
+                desc = volume.get("description", "")
+                summary = volume.get("summary", "")
+                parts = [f"当前卷: {title} (第{start}-{end}章)"]
+                if desc:
+                    parts.append(f"卷描述: {desc[:500]}")
+                if summary:
+                    parts.append(f"卷摘要: {summary[:300]}")
+                return "\n".join(parts)
+
+    # 降级: 从总纲文本中截取前 1500 字
     if not overall_outline:
         return "（总纲为空）"
+    # 尝试在总纲中定位与当前章节号相关的关键词 (如 "第X卷")
+    import re
+    lines = overall_outline.split("\n")
+    for line in lines:
+        if re.search(rf"第[一二三四五六七八九十百千\d]+卷", line):
+            nums = re.findall(r"\d+", line)
+            for n in nums:
+                try:
+                    if int(n) <= target_chapter_num <= int(n) + 100:
+                        return f"当前卷匹配 (总纲推测): {line.strip()[:500]}"
+                except ValueError:
+                    continue
     return overall_outline[:1500]
 
 
