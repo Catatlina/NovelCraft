@@ -110,7 +110,16 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
 
 class DeepSeekKeyMiddleware(BaseHTTPMiddleware):
-    """从服务端用户配置加载 AI Key，不再信任前端 header/localStorage。"""
+    """从服务端用户配置加载 AI Key，不再信任前端 header/localStorage。
+
+    带进程级 TTL 缓存：同一用户的 AI 设置 5 分钟内不重复查库，
+    避免高并发下每个请求都开一次 DB session。
+    """
+
+    def __init__(self, app):
+        super().__init__(app)
+        self._cache: dict[str, tuple[float, str | None, str | None]] = {}  # user_id → (expires_at, key, model)
+        self._ttl = 300  # 5 分钟
 
     async def dispatch(self, request, call_next):
         set_request_api_key(None)
@@ -118,16 +127,22 @@ class DeepSeekKeyMiddleware(BaseHTTPMiddleware):
         token = request.cookies.get("access_token")
         user_id = decode_token_with_type(token, "access") if token else None
         if user_id:
-            try:
-                from app.api.user_ai_settings import load_user_deepseek_settings
-                async with AsyncSessionLocal() as db:
-                    key, model = await load_user_deepseek_settings(db, uuid.UUID(user_id))
-                    set_request_api_key(key)
-                    set_request_model(model)
-            except Exception:
-                # 配置损坏不应影响普通页面/API；真正调用模型时会给出明确错误。
-                set_request_api_key(None)
-                set_request_model(None)
+            now = __import__('time').time()
+            cached = self._cache.get(user_id)
+            if cached and cached[0] > now:
+                set_request_api_key(cached[1])
+                set_request_model(cached[2])
+            else:
+                try:
+                    from app.api.user_ai_settings import load_user_deepseek_settings
+                    async with AsyncSessionLocal() as db:
+                        key, model = await load_user_deepseek_settings(db, uuid.UUID(user_id))
+                        set_request_api_key(key)
+                        set_request_model(model)
+                    self._cache[user_id] = (now + self._ttl, key, model)
+                except Exception:
+                    set_request_api_key(None)
+                    set_request_model(None)
         return await call_next(request)
 
 
